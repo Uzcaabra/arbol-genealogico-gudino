@@ -1,0 +1,1136 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Árbol Genealógico — Familia Gudiño</title>
+
+  <!-- Firebase SDK (v9 compat) -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+  <!-- jsPDF para exportar PDF -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+  <style>
+    /* ── Variables ── */
+    :root {
+      --cream:    #F4F0E6;
+      --cream-dk: #EDE6D6;
+      --brown:    #8B6F47;
+      --brown-lt: #C4A882;
+      --red:      #C0392B;
+      --red-lt:   #F1948A;
+      --blue:     #2980B9;
+      --blue-lt:  #85C1E9;
+      --gray:     #7F8C8D;
+      --gray-lt:  #BDC3C7;
+      --white:    #FFFFFF;
+      --shadow:   rgba(0,0,0,0.15);
+      --font:     'Georgia', 'Times New Roman', serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--cream);
+      font-family: var(--font);
+      color: #333;
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--cream-dk);
+      border-bottom: 3px solid var(--brown-lt);
+      padding: 18px 24px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+    }
+    header h1 {
+      font-size: 1.6rem;
+      color: var(--brown);
+      flex: 1;
+      min-width: 200px;
+    }
+    header h1 span {
+      display: block;
+      font-size: 0.85rem;
+      color: var(--gray);
+      font-style: italic;
+      font-weight: normal;
+    }
+    .header-btns {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    /* ── Buttons ── */
+    button {
+      cursor: pointer;
+      border: none;
+      border-radius: 6px;
+      padding: 8px 14px;
+      font-size: 0.85rem;
+      font-family: var(--font);
+      transition: opacity .2s, transform .1s;
+    }
+    button:active { transform: scale(.97); }
+    .btn-primary   { background: var(--brown); color: var(--white); }
+    .btn-secondary { background: var(--cream-dk); color: var(--brown); border: 1px solid var(--brown-lt); }
+    .btn-danger    { background: var(--red); color: var(--white); }
+    .btn-icon      { background: transparent; padding: 4px 8px; color: var(--brown); font-size: 1rem; }
+    button:hover   { opacity: .85; }
+
+    /* ── Status bar ── */
+    #statusBar {
+      background: #fff8e7;
+      border-bottom: 1px solid var(--brown-lt);
+      padding: 6px 24px;
+      font-size: 0.8rem;
+      color: var(--gray);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    #statusDot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--gray-lt);
+      flex-shrink: 0;
+    }
+    #statusDot.connected { background: #27ae60; }
+    #statusDot.error     { background: var(--red); }
+
+    /* ── Tree canvas ── */
+    #treeContainer {
+      overflow: auto;
+      padding: 30px;
+      min-height: calc(100vh - 130px);
+      position: relative;
+    }
+    #treeWrapper {
+      position: relative;
+      display: inline-block;
+      min-width: 100%;
+    }
+    #treeSvg {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+      overflow: visible;
+    }
+    #treeNodes {
+      position: relative;
+    }
+
+    /* ── Generation rows ── */
+    .gen-row {
+      display: flex;
+      flex-wrap: nowrap;
+      align-items: flex-start;
+      gap: 20px;
+      margin-bottom: 60px;
+      padding: 0 10px;
+    }
+    .gen-group {
+      display: flex;
+      flex-wrap: nowrap;
+      gap: 12px;
+      align-items: flex-start;
+    }
+
+    /* ── Person card ── */
+    .person-card {
+      width: 130px;
+      background: var(--white);
+      border-radius: 10px;
+      box-shadow: 0 2px 8px var(--shadow);
+      cursor: pointer;
+      transition: transform .2s, box-shadow .2s;
+      position: relative;
+      flex-shrink: 0;
+    }
+    .person-card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 6px 16px var(--shadow);
+    }
+    .person-card.gender-F { border-top: 4px solid var(--red); }
+    .person-card.gender-M { border-top: 4px solid var(--blue); }
+    .person-card.gender-O { border-top: 4px solid var(--gray); }
+
+    .card-avatar {
+      width: 48px; height: 48px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.1rem;
+      font-weight: bold;
+      color: var(--white);
+      margin: 14px auto 8px;
+    }
+    .gender-F .card-avatar { background: var(--red-lt); }
+    .gender-M .card-avatar { background: var(--blue-lt); }
+    .gender-O .card-avatar { background: var(--gray-lt); }
+
+    .card-body { padding: 0 10px 12px; text-align: center; }
+    .card-name {
+      font-size: 0.78rem;
+      font-weight: bold;
+      line-height: 1.3;
+      color: #222;
+      word-break: break-word;
+    }
+    .card-dates {
+      font-size: 0.68rem;
+      color: var(--gray);
+      margin-top: 3px;
+      font-style: italic;
+    }
+
+    /* ── Couple bracket ── */
+    .couple-bracket {
+      display: flex;
+      align-items: flex-start;
+      gap: 0;
+    }
+    .couple-line {
+      width: 20px;
+      height: 4px;
+      background: var(--brown-lt);
+      align-self: center;
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+
+    /* ── Empty state ── */
+    #emptyState {
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--gray);
+    }
+    #emptyState h2 { font-size: 1.4rem; margin-bottom: 12px; color: var(--brown); }
+    #emptyState p  { font-size: 0.9rem; margin-bottom: 20px; }
+
+    /* ── Modal overlay ── */
+    .modal-overlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.45);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .modal-overlay.active { display: flex; }
+
+    .modal {
+      background: var(--white);
+      border-radius: 12px;
+      padding: 28px 24px;
+      width: 100%;
+      max-width: 480px;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.3);
+    }
+    .modal h2 {
+      font-size: 1.2rem;
+      color: var(--brown);
+      margin-bottom: 20px;
+      border-bottom: 1px solid var(--cream-dk);
+      padding-bottom: 10px;
+    }
+
+    /* ── Form ── */
+    .form-group {
+      margin-bottom: 14px;
+    }
+    .form-group label {
+      display: block;
+      font-size: 0.82rem;
+      color: var(--gray);
+      margin-bottom: 4px;
+      font-style: italic;
+    }
+    .form-group input,
+    .form-group select,
+    .form-group textarea {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid var(--cream-dk);
+      border-radius: 6px;
+      font-size: 0.9rem;
+      font-family: var(--font);
+      background: var(--cream);
+      color: #333;
+      transition: border-color .2s;
+    }
+    .form-group input:focus,
+    .form-group select:focus,
+    .form-group textarea:focus {
+      outline: none;
+      border-color: var(--brown-lt);
+    }
+    .form-group textarea { resize: vertical; min-height: 60px; }
+
+    .form-row { display: flex; gap: 12px; }
+    .form-row .form-group { flex: 1; }
+
+    .modal-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 20px;
+      flex-wrap: wrap;
+    }
+    .modal-actions button { flex: 1; min-width: 100px; }
+
+    /* ── Firebase config notice ── */
+    #configNotice {
+      background: #FFF3CD;
+      border: 1px solid #FFEAA7;
+      border-radius: 8px;
+      padding: 14px 18px;
+      margin: 20px;
+      font-size: 0.85rem;
+      line-height: 1.6;
+    }
+    #configNotice strong { color: var(--brown); }
+    #configNotice code {
+      background: #f0e8d0;
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-family: monospace;
+      font-size: 0.8rem;
+    }
+    #configNotice.hidden { display: none; }
+
+    /* ── Responsive ── */
+    @media (max-width: 600px) {
+      header h1 { font-size: 1.2rem; }
+      .header-btns button { padding: 6px 10px; font-size: 0.78rem; }
+      #treeContainer { padding: 16px; }
+      .person-card { width: 110px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════
+     FIREBASE CONFIG — Reemplaza estos valores
+     con los de tu proyecto en Firebase Console
+     ══════════════════════════════════════════ -->
+<script>
+  const FIREBASE_CONFIG = {
+    apiKey:            "TU_API_KEY",
+    authDomain:        "TU_PROJECT_ID.firebaseapp.com",
+    databaseURL:       "https://TU_PROJECT_ID-default-rtdb.firebaseio.com",
+    projectId:         "TU_PROJECT_ID",
+    storageBucket:     "TU_PROJECT_ID.appspot.com",
+    messagingSenderId: "TU_SENDER_ID",
+    appId:             "TU_APP_ID"
+  };
+
+  // Nombre de la familia — aparece en el encabezado y en el PDF
+  const FAMILY_NAME    = "Familia Gudiño";
+  const FAMILY_ORIGIN  = "Santa Lucía del Tuy · Miranda · Venezuela";
+</script>
+<!-- ══ FIN DE CONFIG ══════════════════════ -->
+
+<header>
+  <h1>
+    🌳 <span id="headerFamily"></span>
+    <span id="headerOrigin"></span>
+  </h1>
+  <div class="header-btns">
+    <button class="btn-primary" id="btnAdd">+ Agregar familiar</button>
+    <button class="btn-secondary" id="btnExportPdf">📄 PDF</button>
+    <button class="btn-secondary" id="btnExportJson">💾 JSON</button>
+    <button class="btn-secondary" id="btnImportJson">📂 Importar</button>
+    <input type="file" id="fileImport" accept=".json" style="display:none" />
+  </div>
+</header>
+
+<div id="statusBar">
+  <div id="statusDot"></div>
+  <span id="statusText">Conectando a Firebase…</span>
+</div>
+
+<!-- Aviso cuando Firebase no está configurado -->
+<div id="configNotice" class="hidden">
+  <strong>⚠️ Firebase no configurado todavía</strong><br>
+  Edita el bloque <code>FIREBASE_CONFIG</code> en <code>index.html</code> con las credenciales de tu proyecto.<br>
+  Consulta el <strong>README.md</strong> para las instrucciones paso a paso.<br><br>
+  Por ahora, los datos se guardan <em>solo en esta pestaña</em> (modo demo sin sincronización).
+</div>
+
+<div id="treeContainer">
+  <div id="treeWrapper">
+    <svg id="treeSvg"></svg>
+    <div id="treeNodes"></div>
+  </div>
+  <div id="emptyState" style="display:none">
+    <h2>El árbol está vacío</h2>
+    <p>Comienza agregando el primer familiar.</p>
+    <button class="btn-primary" id="btnAddEmpty">+ Agregar familiar</button>
+  </div>
+</div>
+
+<!-- ══ MODAL AGREGAR / EDITAR ══ -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <h2 id="modalTitle">Agregar familiar</h2>
+    <form id="personForm" novalidate>
+      <input type="hidden" id="fieldId" />
+
+      <div class="form-group">
+        <label>Nombre completo *</label>
+        <input type="text" id="fieldName" required placeholder="Ej. María Gudiño" />
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Nacimiento</label>
+          <input type="text" id="fieldBirth" placeholder="Ej. 1940 o 15/03/1940" />
+        </div>
+        <div class="form-group">
+          <label>Fallecimiento</label>
+          <input type="text" id="fieldDeath" placeholder="Ej. 2010" />
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Género</label>
+        <select id="fieldGender">
+          <option value="F">Femenino</option>
+          <option value="M">Masculino</option>
+          <option value="O">Otro / No especificado</option>
+        </select>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Padre</label>
+          <select id="fieldFather"><option value="">— ninguno —</option></select>
+        </div>
+        <div class="form-group">
+          <label>Madre</label>
+          <select id="fieldMother"><option value="">— ninguno —</option></select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Pareja / Cónyuge</label>
+        <select id="fieldSpouse"><option value="">— ninguno —</option></select>
+      </div>
+
+      <div class="form-group">
+        <label>Cargado por</label>
+        <input type="text" id="fieldAddedBy" placeholder="Tu nombre (opcional)" />
+      </div>
+
+      <div class="form-group">
+        <label>Notas</label>
+        <textarea id="fieldNotes" placeholder="Datos curiosos, historia, oficio…"></textarea>
+      </div>
+
+      <div class="modal-actions">
+        <button type="submit" class="btn-primary" id="btnSave">Guardar</button>
+        <button type="button" class="btn-secondary" id="btnCancel">Cancelar</button>
+        <button type="button" class="btn-danger" id="btnDelete" style="display:none">Eliminar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════
+//  ESTADO GLOBAL
+// ════════════════════════════════════════════════════════
+let people = {};        // { id: personObj }
+let dbRef  = null;      // Firebase database reference
+let firebaseOk = false;
+
+// ════════════════════════════════════════════════════════
+//  DATOS INICIALES — Familia Gudiño
+// ════════════════════════════════════════════════════════
+const SEED_DATA = [
+  { _key:"anicacia",    name:"Anicacia Gudiño",                     gender:"F", birth:"",           death:"", father:null, mother:null, spouse:"ramon",    addedBy:"sistema", notes:"Fundadora de la familia" },
+  { _key:"ramon",       name:"Ramón Tupano",                         gender:"M", birth:"",           death:"", father:null, mother:null, spouse:"anicacia",  addedBy:"sistema", notes:"" },
+  { _key:"salome",      name:"Salomé Gudiño",                        gender:"F", birth:"",           death:"", father:"ramon", mother:"anicacia", spouse:null, addedBy:"sistema", notes:"" },
+  { _key:"luisa",       name:"Luisa Gudiño",                         gender:"F", birth:"",           death:"", father:"ramon", mother:"anicacia", spouse:null, addedBy:"sistema", notes:"" },
+  { _key:"bruna",       name:"Bruna Gudiño",                         gender:"F", birth:"",           death:"", father:"ramon", mother:"anicacia", spouse:null, addedBy:"sistema", notes:"" },
+  { _key:"josefa",      name:"Josefa Gudiño",                        gender:"F", birth:"",           death:"", father:"ramon", mother:"anicacia", spouse:"pedro_e", addedBy:"sistema", notes:"" },
+  { _key:"remigia",     name:"Remigia Gudiño",                       gender:"F", birth:"",           death:"", father:"ramon", mother:"anicacia", spouse:null, addedBy:"sistema", notes:"" },
+  { _key:"veronica",    name:"Verónica Gudiño",                      gender:"F", birth:"",           death:"", father:"ramon", mother:"anicacia", spouse:null, addedBy:"sistema", notes:"" },
+  { _key:"raimundo",    name:"Raimundo Gudiño",                      gender:"M", birth:"",           death:"", father:"ramon", mother:"anicacia", spouse:null, addedBy:"sistema", notes:"" },
+  { _key:"enemecio",    name:"Enemecio Gudiño",                      gender:"M", birth:"",           death:"", father:"ramon", mother:"anicacia", spouse:null, addedBy:"sistema", notes:"" },
+  { _key:"pedro_e",     name:"Pedro Elías Uzcategui",                gender:"M", birth:"",           death:"", father:null, mother:null, spouse:"josefa",   addedBy:"sistema", notes:"Entró a la familia por matrimonio con Josefa" },
+  { _key:"pedro_eg",    name:"Pedro Elías Uzcategui Gudiño",         gender:"M", birth:"22/12/1960", death:"", father:"pedro_e", mother:"josefa", spouse:null, addedBy:"sistema", notes:"" },
+  { _key:"carmen",      name:"Carmen Elena Uzcategui Gudiño",        gender:"F", birth:"",           death:"", father:"pedro_e", mother:"josefa", spouse:null, addedBy:"sistema", notes:"" },
+  { _key:"ana",         name:"Ana Luisa Uzcategui Gudiño",           gender:"F", birth:"",           death:"", father:"pedro_e", mother:"josefa", spouse:null, addedBy:"sistema", notes:"" },
+  { _key:"maria_e",     name:"María Enriqueta Uzcategui Gudiño",     gender:"F", birth:"",           death:"", father:"pedro_e", mother:"josefa", spouse:null, addedBy:"sistema", notes:"" },
+];
+
+// ════════════════════════════════════════════════════════
+//  INICIALIZACIÓN DE FIREBASE
+// ════════════════════════════════════════════════════════
+function initFirebase() {
+  const isPlaceholder = FIREBASE_CONFIG.apiKey.startsWith("TU_");
+  document.getElementById("configNotice").classList.toggle("hidden", !isPlaceholder);
+
+  if (isPlaceholder) {
+    setStatus("Demo local (sin Firebase)", "error");
+    loadLocalMode();
+    return;
+  }
+
+  try {
+    firebase.initializeApp(FIREBASE_CONFIG);
+    const db = firebase.database();
+    dbRef = db.ref("people");
+
+    db.ref(".info/connected").on("value", snap => {
+      if (snap.val()) {
+        setStatus("Conectado en tiempo real ✓", "connected");
+      } else {
+        setStatus("Reconectando…", "");
+      }
+    });
+
+    dbRef.on("value", snap => {
+      const data = snap.val();
+      if (data === null) {
+        // Base vacía → sembrar datos iniciales
+        seedData();
+      } else {
+        people = data;
+        renderTree();
+      }
+    });
+  } catch (e) {
+    setStatus("Error al inicializar Firebase: " + e.message, "error");
+    loadLocalMode();
+  }
+}
+
+function loadLocalMode() {
+  people = {};
+  SEED_DATA.forEach(p => {
+    const id = p._key;
+    const obj = { ...p };
+    delete obj._key;
+    // Resolver referencias por _key
+    ["father","mother","spouse"].forEach(field => {
+      if (obj[field]) {
+        const ref = SEED_DATA.find(x => x._key === obj[field]);
+        obj[field] = ref ? ref._key : null;
+      }
+    });
+    people[id] = obj;
+  });
+  renderTree();
+}
+
+function seedData() {
+  const writes = {};
+  SEED_DATA.forEach(p => {
+    const id = p._key;
+    const obj = { ...p };
+    delete obj._key;
+    writes[id] = obj;
+  });
+  dbRef.set(writes);
+}
+
+// ════════════════════════════════════════════════════════
+//  CRUD
+// ════════════════════════════════════════════════════════
+function savePerson(id, data) {
+  if (dbRef) {
+    dbRef.child(id).set(data);
+  } else {
+    people[id] = data;
+    renderTree();
+  }
+}
+
+function deletePerson(id) {
+  if (dbRef) {
+    dbRef.child(id).remove();
+    // Limpiar referencias
+    dbRef.once("value", snap => {
+      const all = snap.val() || {};
+      Object.entries(all).forEach(([k, v]) => {
+        let changed = false;
+        ["father","mother","spouse"].forEach(f => {
+          if (v[f] === id) { v[f] = null; changed = true; }
+        });
+        if (changed) dbRef.child(k).set(v);
+      });
+    });
+  } else {
+    delete people[id];
+    Object.values(people).forEach(p => {
+      ["father","mother","spouse"].forEach(f => {
+        if (p[f] === id) p[f] = null;
+      });
+    });
+    renderTree();
+  }
+}
+
+// ════════════════════════════════════════════════════════
+//  MODAL
+// ════════════════════════════════════════════════════════
+const overlay    = document.getElementById("modalOverlay");
+const form       = document.getElementById("personForm");
+const btnDelete  = document.getElementById("btnDelete");
+
+function openModal(id = null) {
+  form.reset();
+  populateSelects(id);
+
+  if (id) {
+    const p = people[id];
+    document.getElementById("modalTitle").textContent = "Editar familiar";
+    document.getElementById("fieldId").value      = id;
+    document.getElementById("fieldName").value    = p.name    || "";
+    document.getElementById("fieldBirth").value   = p.birth   || "";
+    document.getElementById("fieldDeath").value   = p.death   || "";
+    document.getElementById("fieldGender").value  = p.gender  || "F";
+    document.getElementById("fieldFather").value  = p.father  || "";
+    document.getElementById("fieldMother").value  = p.mother  || "";
+    document.getElementById("fieldSpouse").value  = p.spouse  || "";
+    document.getElementById("fieldAddedBy").value = p.addedBy || "";
+    document.getElementById("fieldNotes").value   = p.notes   || "";
+    btnDelete.style.display = "block";
+  } else {
+    document.getElementById("modalTitle").textContent = "Agregar familiar";
+    document.getElementById("fieldId").value = "";
+    btnDelete.style.display = "none";
+  }
+
+  overlay.classList.add("active");
+}
+
+function closeModal() {
+  overlay.classList.remove("active");
+}
+
+function populateSelects(excludeId) {
+  const sorted = Object.entries(people)
+    .filter(([k]) => k !== excludeId)
+    .sort((a, b) => a[1].name.localeCompare(b[1].name));
+
+  ["fieldFather","fieldMother","fieldSpouse"].forEach(sel => {
+    const el = document.getElementById(sel);
+    el.innerHTML = '<option value="">— ninguno —</option>';
+    sorted.forEach(([k, v]) => {
+      const opt = document.createElement("option");
+      opt.value = k;
+      opt.textContent = v.name;
+      el.appendChild(opt);
+    });
+  });
+}
+
+form.addEventListener("submit", e => {
+  e.preventDefault();
+  const name = document.getElementById("fieldName").value.trim();
+  if (!name) { alert("El nombre es obligatorio."); return; }
+
+  let id = document.getElementById("fieldId").value.trim();
+  if (!id) {
+    // Generar ID único a partir del nombre + timestamp
+    id = name.toLowerCase()
+             .normalize("NFD").replace(/[̀-ͯ]/g,"")
+             .replace(/[^a-z0-9]/g,"_")
+             .replace(/_+/g,"_")
+             .slice(0,20) + "_" + Date.now().toString(36);
+  }
+
+  const data = {
+    name:    name,
+    birth:   document.getElementById("fieldBirth").value.trim(),
+    death:   document.getElementById("fieldDeath").value.trim(),
+    gender:  document.getElementById("fieldGender").value,
+    father:  document.getElementById("fieldFather").value || null,
+    mother:  document.getElementById("fieldMother").value || null,
+    spouse:  document.getElementById("fieldSpouse").value || null,
+    addedBy: document.getElementById("fieldAddedBy").value.trim(),
+    notes:   document.getElementById("fieldNotes").value.trim(),
+  };
+
+  savePerson(id, data);
+  closeModal();
+});
+
+btnDelete.addEventListener("click", () => {
+  const id = document.getElementById("fieldId").value;
+  const name = people[id]?.name || "esta persona";
+  if (confirm(`¿Eliminar a ${name} del árbol? Esta acción no se puede deshacer.`)) {
+    deletePerson(id);
+    closeModal();
+  }
+});
+
+document.getElementById("btnCancel").addEventListener("click", closeModal);
+overlay.addEventListener("click", e => { if (e.target === overlay) closeModal(); });
+document.getElementById("btnAdd").addEventListener("click", () => openModal());
+document.getElementById("btnAddEmpty")?.addEventListener("click", () => openModal());
+
+// ════════════════════════════════════════════════════════
+//  CÁLCULO DE GENERACIONES
+// ════════════════════════════════════════════════════════
+function calcGenerations() {
+  const gen = {};  // id → número de generación (0 = más antigua)
+
+  function getGen(id, visited = new Set()) {
+    if (gen[id] !== undefined) return gen[id];
+    if (visited.has(id)) return 0;
+    visited.add(id);
+    const p = people[id];
+    if (!p) return 0;
+    let g = 0;
+    if (p.father && people[p.father]) g = Math.max(g, getGen(p.father, visited) + 1);
+    if (p.mother && people[p.mother]) g = Math.max(g, getGen(p.mother, visited) + 1);
+    gen[id] = g;
+    return g;
+  }
+
+  Object.keys(people).forEach(id => getGen(id));
+
+  // Alinear cónyuge sin padres a la misma generación de su pareja
+  let changed = true;
+  while (changed) {
+    changed = false;
+    Object.entries(people).forEach(([id, p]) => {
+      if (p.spouse && people[p.spouse]) {
+        const sg = gen[p.spouse];
+        const mg = gen[id];
+        if (!p.father && !p.mother && sg !== undefined && mg !== sg) {
+          gen[id] = sg;
+          changed = true;
+        }
+      }
+    });
+  }
+
+  return gen;
+}
+
+// ════════════════════════════════════════════════════════
+//  RENDERIZADO DEL ÁRBOL
+// ════════════════════════════════════════════════════════
+function initials(name) {
+  return name.split(" ").slice(0,2).map(w => w[0]?.toUpperCase() || "").join("");
+}
+
+function renderTree() {
+  const nodesEl = document.getElementById("treeNodes");
+  const svgEl   = document.getElementById("treeSvg");
+  const empty   = document.getElementById("emptyState");
+  nodesEl.innerHTML = "";
+  svgEl.innerHTML   = "";
+
+  if (Object.keys(people).length === 0) {
+    empty.style.display = "block";
+    return;
+  }
+  empty.style.display = "none";
+
+  const gen = calcGenerations();
+  const maxGen = Math.max(...Object.values(gen));
+
+  // Agrupar por generación
+  const byGen = {};
+  for (let g = 0; g <= maxGen; g++) byGen[g] = [];
+  Object.keys(people).forEach(id => {
+    const g = gen[id] ?? 0;
+    if (!byGen[g]) byGen[g] = [];
+    byGen[g].push(id);
+  });
+
+  // Identificar parejas para renderizar juntos
+  const rendered = new Set();
+
+  Object.keys(byGen).sort((a,b)=>a-b).forEach(g => {
+    const row = document.createElement("div");
+    row.className = "gen-row";
+    row.dataset.gen = g;
+
+    const ids = byGen[g];
+    // Ordenar: parejas juntas, luego solteros
+    const order = [];
+    const added = new Set();
+
+    ids.forEach(id => {
+      if (added.has(id)) return;
+      const p = people[id];
+      const spouseId = p.spouse;
+      if (spouseId && ids.includes(spouseId) && !added.has(spouseId)) {
+        order.push([id, spouseId]);
+        added.add(id); added.add(spouseId);
+      } else if (!spouseId || !ids.includes(spouseId)) {
+        order.push([id]);
+        added.add(id);
+      } else {
+        order.push([id]);
+        added.add(id);
+      }
+    });
+
+    order.forEach(group => {
+      const wrapper = document.createElement("div");
+      if (group.length === 2) {
+        wrapper.className = "gen-group couple-bracket";
+        wrapper.dataset.couple = group.join(",");
+      } else {
+        wrapper.className = "gen-group";
+      }
+
+      group.forEach((id, idx) => {
+        if (rendered.has(id)) return;
+        rendered.add(id);
+        wrapper.appendChild(makeCard(id));
+        if (group.length === 2 && idx === 0) {
+          const line = document.createElement("div");
+          line.className = "couple-line";
+          wrapper.appendChild(line);
+        }
+      });
+
+      row.appendChild(wrapper);
+    });
+
+    nodesEl.appendChild(row);
+  });
+
+  // Dibujar líneas SVG después de que el DOM se renderice
+  requestAnimationFrame(() => drawConnectors(gen));
+}
+
+function makeCard(id) {
+  const p = people[id];
+  const card = document.createElement("div");
+  card.className = `person-card gender-${p.gender || "O"}`;
+  card.dataset.id = id;
+
+  const avatar = document.createElement("div");
+  avatar.className = "card-avatar";
+  avatar.textContent = initials(p.name);
+
+  const body = document.createElement("div");
+  body.className = "card-body";
+
+  const nameEl = document.createElement("div");
+  nameEl.className = "card-name";
+  nameEl.textContent = p.name;
+
+  const dates = [];
+  if (p.birth) dates.push("n. " + p.birth);
+  if (p.death) dates.push("† " + p.death);
+  const datesEl = document.createElement("div");
+  datesEl.className = "card-dates";
+  datesEl.textContent = dates.join(" — ");
+
+  body.appendChild(nameEl);
+  body.appendChild(datesEl);
+  card.appendChild(avatar);
+  card.appendChild(body);
+
+  card.addEventListener("click", () => openModal(id));
+  return card;
+}
+
+// ════════════════════════════════════════════════════════
+//  SVG CONNECTORS
+// ════════════════════════════════════════════════════════
+function drawConnectors(gen) {
+  const svg   = document.getElementById("treeSvg");
+  const wrap  = document.getElementById("treeWrapper");
+  const wRect = wrap.getBoundingClientRect();
+
+  svg.setAttribute("viewBox", `0 0 ${wrap.scrollWidth} ${wrap.scrollHeight}`);
+  svg.style.width  = wrap.scrollWidth  + "px";
+  svg.style.height = wrap.scrollHeight + "px";
+
+  function cardRect(id) {
+    const el = document.querySelector(`.person-card[data-id="${id}"]`);
+    if (!el) return null;
+    const r  = el.getBoundingClientRect();
+    return {
+      left:   r.left   - wRect.left + wrap.scrollLeft,
+      top:    r.top    - wRect.top  + wrap.scrollTop,
+      right:  r.right  - wRect.left + wrap.scrollLeft,
+      bottom: r.bottom - wRect.top  + wrap.scrollTop,
+      cx:     r.left   - wRect.left + wrap.scrollLeft + r.width  / 2,
+      cy:     r.top    - wRect.top  + wrap.scrollTop  + r.height / 2,
+      width:  r.width,
+      height: r.height,
+    };
+  }
+
+  // Para cada persona con padres, dibuja línea padre→hijo
+  const processed = new Set();
+
+  Object.entries(people).forEach(([childId, child]) => {
+    const fatherId = child.father;
+    const motherId = child.mother;
+    if (!fatherId && !motherId) return;
+
+    const childRect = cardRect(childId);
+    if (!childRect) return;
+
+    let midX;
+
+    if (fatherId && motherId) {
+      const fr = cardRect(fatherId);
+      const mr = cardRect(motherId);
+      if (!fr || !mr) return;
+      // Midpoint between the two parents
+      midX = (fr.cx + mr.cx) / 2;
+    } else {
+      const pr = cardRect(fatherId || motherId);
+      if (!pr) return;
+      midX = pr.cx;
+    }
+
+    const parentY = fatherId
+      ? (cardRect(fatherId)?.bottom ?? 0)
+      : (cardRect(motherId)?.bottom ?? 0);
+
+    const midY    = parentY + (childRect.top - parentY) / 2;
+    const childX  = childRect.cx;
+    const childTop = childRect.top;
+
+    // Línea vertical desde padre/madres hacia abajo hasta punto medio
+    // Luego horizontal hacia childX, luego vertical hacia la tarjeta del hijo
+    const key = `${fatherId||""}-${motherId||""}-${childId}`;
+    if (processed.has(key)) return;
+    processed.add(key);
+
+    const path = document.createElementNS("http://www.w3.org/2000/svg","path");
+    path.setAttribute("fill", "none");
+    path.setAttribute("stroke", "#C4A882");
+    path.setAttribute("stroke-width", "2");
+    path.setAttribute("stroke-dasharray", "4,3");
+    path.setAttribute("d",
+      `M ${midX} ${parentY + 4} L ${midX} ${midY} L ${childX} ${midY} L ${childX} ${childTop - 4}`
+    );
+    svg.appendChild(path);
+  });
+
+  // Línea horizontal entre cónyuges (ya la pone el div .couple-line, pero SVG para distantes)
+}
+
+// ════════════════════════════════════════════════════════
+//  EXPORTAR PDF
+// ════════════════════════════════════════════════════════
+document.getElementById("btnExportPdf").addEventListener("click", exportPdf);
+
+function exportPdf() {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+
+  const W = 297, H = 210;
+  const cream = [244,240,230], creamDk = [237,230,214], brown = [139,111,71];
+  const red   = [192, 57, 43], blue = [41,128,185], gray = [127,140,141];
+
+  // Fondo
+  doc.setFillColor(...cream);
+  doc.rect(0, 0, W, H, "F");
+
+  // Banda encabezado
+  doc.setFillColor(...creamDk);
+  doc.rect(0, 0, W, 24, "F");
+
+  doc.setTextColor(...brown);
+  doc.setFontSize(18);
+  doc.setFont("helvetica","bold");
+  doc.text(FAMILY_NAME, W/2, 11, { align:"center" });
+  doc.setFontSize(9);
+  doc.setFont("helvetica","normal");
+  doc.setTextColor(...gray);
+  doc.text(FAMILY_ORIGIN, W/2, 18, { align:"center" });
+
+  // Calcular generaciones
+  const genMap = calcGenerations();
+  const maxGen = Math.max(...Object.values(genMap));
+
+  const cardW = 42, cardH = 22, colGap = 6, rowGap = 14;
+  const startY = 32;
+
+  // Agrupar por generación
+  const byGen = {};
+  for (let g = 0; g <= maxGen; g++) byGen[g] = [];
+  Object.keys(people).forEach(id => {
+    const g = genMap[id] ?? 0;
+    if (!byGen[g]) byGen[g] = [];
+    byGen[g].push(id);
+  });
+
+  const posMap = {}; // id → { x, y }
+
+  Object.keys(byGen).sort((a,b)=>+a-+b).forEach(g => {
+    const ids = byGen[g];
+    const totalW = ids.length * cardW + (ids.length - 1) * colGap;
+    let x = (W - totalW) / 2;
+    const y = startY + (+g) * (cardH + rowGap);
+
+    ids.forEach(id => {
+      posMap[id] = { x, y };
+      const p = people[id];
+      const color = p.gender === "F" ? red : p.gender === "M" ? blue : gray;
+
+      // Card background
+      doc.setFillColor(255,255,255);
+      doc.roundedRect(x, y, cardW, cardH, 2, 2, "F");
+
+      // Color top strip
+      doc.setFillColor(...color);
+      doc.roundedRect(x, y, cardW, 3, 1, 1, "F");
+      doc.rect(x, y+2, cardW, 1, "F");
+
+      // Name
+      doc.setTextColor(40,40,40);
+      doc.setFontSize(6.5);
+      doc.setFont("helvetica","bold");
+      const lines = doc.splitTextToSize(p.name, cardW - 4);
+      doc.text(lines.slice(0,2), x + cardW/2, y + 8, { align:"center" });
+
+      // Dates
+      const dates = [];
+      if (p.birth) dates.push("n. " + p.birth);
+      if (p.death) dates.push("† " + p.death);
+      if (dates.length) {
+        doc.setFontSize(5.5);
+        doc.setFont("helvetica","normal");
+        doc.setTextColor(...gray);
+        doc.text(dates.join(" — "), x + cardW/2, y + cardH - 3, { align:"center" });
+      }
+
+      x += cardW + colGap;
+    });
+  });
+
+  // Connectors
+  Object.entries(people).forEach(([childId, child]) => {
+    const fId = child.father, mId = child.mother;
+    if (!fId && !mId) return;
+    const cp = posMap[childId]; if (!cp) return;
+
+    let midX;
+    if (fId && mId) {
+      const fp = posMap[fId], mp = posMap[mId];
+      if (!fp || !mp) return;
+      midX = ((fp.x + cardW/2) + (mp.x + cardW/2)) / 2;
+    } else {
+      const pp = posMap[fId || mId]; if (!pp) return;
+      midX = pp.x + cardW/2;
+    }
+
+    const parentY = (posMap[fId || mId]?.y ?? 0) + cardH;
+    const midY    = parentY + rowGap / 2;
+    const childX  = cp.x + cardW/2;
+    const childTop = cp.y;
+
+    doc.setDrawColor(...brown);
+    doc.setLineWidth(0.4);
+    doc.setLineDashPattern([1, 1], 0);
+    doc.lines([[0, midY - parentY],[childX-midX, 0],[0, childTop - midY]], midX, parentY);
+    doc.setLineDashPattern([], 0);
+  });
+
+  // Spouse connectors (solid)
+  const drawnSpouses = new Set();
+  Object.entries(people).forEach(([id, p]) => {
+    if (!p.spouse || drawnSpouses.has(id+p.spouse) || drawnSpouses.has(p.spouse+id)) return;
+    const a = posMap[id], b = posMap[p.spouse];
+    if (!a || !b) return;
+    drawnSpouses.add(id+p.spouse);
+    doc.setDrawColor(...brown);
+    doc.setLineWidth(0.8);
+    doc.setLineDashPattern([], 0);
+    const ay = a.y + cardH/2, by = b.y + cardH/2;
+    const ax = a.x + (b.x > a.x ? cardW : 0);
+    const bx = b.x + (b.x > a.x ? 0 : cardW);
+    doc.line(ax, ay, bx, by);
+  });
+
+  doc.setFontSize(6);
+  doc.setTextColor(...gray);
+  doc.text(`Generado el ${new Date().toLocaleDateString("es-VE")}`, W - 5, H - 4, { align:"right" });
+
+  doc.save(`arbol-genealogico-gudino-${Date.now()}.pdf`);
+}
+
+// ════════════════════════════════════════════════════════
+//  EXPORTAR / IMPORTAR JSON
+// ════════════════════════════════════════════════════════
+document.getElementById("btnExportJson").addEventListener("click", () => {
+  const blob = new Blob([JSON.stringify(people, null, 2)], { type:"application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `arbol-gudino-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+});
+
+document.getElementById("btnImportJson").addEventListener("click", () => {
+  document.getElementById("fileImport").click();
+});
+
+document.getElementById("fileImport").addEventListener("change", e => {
+  const file = e.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try {
+      const data = JSON.parse(ev.target.result);
+      if (typeof data !== "object") throw new Error("Formato inválido");
+      if (!confirm(`¿Importar ${Object.keys(data).length} personas? Esto reemplazará los datos actuales.`)) return;
+      if (dbRef) {
+        dbRef.set(data);
+      } else {
+        people = data;
+        renderTree();
+      }
+    } catch(err) {
+      alert("Error al importar: " + err.message);
+    }
+  };
+  reader.readAsText(file);
+  e.target.value = "";
+});
+
+// ════════════════════════════════════════════════════════
+//  UTILIDADES
+// ════════════════════════════════════════════════════════
+function setStatus(text, state) {
+  document.getElementById("statusText").textContent = text;
+  const dot = document.getElementById("statusDot");
+  dot.className = state ? `connected ${state === "error" ? "error" : ""}`.trim() : "";
+  if (state === "connected") dot.className = "connected";
+  if (state === "error")     dot.className = "error";
+}
+
+// ════════════════════════════════════════════════════════
+//  ARRANQUE
+// ════════════════════════════════════════════════════════
+document.getElementById("headerFamily").textContent = FAMILY_NAME;
+document.getElementById("headerOrigin").textContent = FAMILY_ORIGIN;
+
+window.addEventListener("resize", () => {
+  if (Object.keys(people).length) {
+    const gen = calcGenerations();
+    requestAnimationFrame(() => drawConnectors(gen));
+  }
+});
+
+initFirebase();
+</script>
+</body>
+</html>
