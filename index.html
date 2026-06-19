@@ -941,9 +941,39 @@ document.getElementById("btnExportPdf").addEventListener("click", exportPdf);
 
 function exportPdf() {
   const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
 
-  const W = 297, H = 210;
+  // 1. Configuración de dimensiones base
+  const cardW = 42, cardH = 22, colGap = 6, rowGap = 14;
+  const startY = 32;
+
+  // 2. Agrupar por generación y calcular
+  const genMap = calcGenerations();
+  const maxGen = Math.max(...Object.values(genMap));
+
+  const byGen = {};
+  for (let g = 0; g <= maxGen; g++) byGen[g] = [];
+  Object.keys(people).forEach(id => {
+    const g = genMap[id] ?? 0;
+    if (!byGen[g]) byGen[g] = [];
+    byGen[g].push(id);
+  });
+
+  // 3. LA MAGIA: Calcular el ancho y alto máximo que realmente necesita el árbol
+  let maxRowWidth = 0;
+  Object.keys(byGen).forEach(g => {
+    const count = byGen[g].length;
+    const w = count * cardW + (count > 0 ? count - 1 : 0) * colGap;
+    if (w > maxRowWidth) maxRowWidth = w;
+  });
+
+  // El ancho final será el de la fila más ancha + 40mm de margen (con un mínimo de A4: 297)
+  const W = Math.max(297, maxRowWidth + 40);
+  // El alto final baja hasta la última generación + margen
+  const H = Math.max(210, startY + (maxGen + 1) * (cardH + rowGap) + 20);
+
+  // 4. Crear el PDF con tamaño personalizado dinámico
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: [W, H] });
+
   const cream = [244,240,230], creamDk = [237,230,214], brown = [139,111,71];
   const red   = [192, 57, 43], blue = [41,128,185], gray = [127,140,141];
 
@@ -964,28 +994,13 @@ function exportPdf() {
   doc.setTextColor(...gray);
   doc.text(FAMILY_ORIGIN, W/2, 18, { align:"center" });
 
-  // Calcular generaciones
-  const genMap = calcGenerations();
-  const maxGen = Math.max(...Object.values(genMap));
-
-  const cardW = 42, cardH = 22, colGap = 6, rowGap = 14;
-  const startY = 32;
-
-  // Agrupar por generación
-  const byGen = {};
-  for (let g = 0; g <= maxGen; g++) byGen[g] = [];
-  Object.keys(people).forEach(id => {
-    const g = genMap[id] ?? 0;
-    if (!byGen[g]) byGen[g] = [];
-    byGen[g].push(id);
-  });
-
   const posMap = {}; // id → { x, y }
 
+  // 5. Dibujar Tarjetas
   Object.keys(byGen).sort((a,b)=>+a-+b).forEach(g => {
     const ids = byGen[g];
-    const totalW = ids.length * cardW + (ids.length - 1) * colGap;
-    let x = (W - totalW) / 2;
+    const totalW = ids.length * cardW + (ids.length > 0 ? ids.length - 1 : 0) * colGap;
+    let x = (W - totalW) / 2; // Ahora siempre dará positivo porque W es más grande que totalW
     const y = startY + (+g) * (cardH + rowGap);
 
     ids.forEach(id => {
@@ -1024,7 +1039,7 @@ function exportPdf() {
     });
   });
 
-  // Connectors
+  // 6. Conectores padres/hijos
   Object.entries(people).forEach(([childId, child]) => {
     const fId = child.father, mId = child.mother;
     if (!fId && !mId) return;
@@ -1052,7 +1067,7 @@ function exportPdf() {
     doc.setLineDashPattern([], 0);
   });
 
-  // Spouse connectors (solid)
+  // 7. Conectores de cónyuges
   const drawnSpouses = new Set();
   Object.entries(people).forEach(([id, p]) => {
     if (!p.spouse || drawnSpouses.has(id+p.spouse) || drawnSpouses.has(p.spouse+id)) return;
@@ -1068,6 +1083,7 @@ function exportPdf() {
     doc.line(ax, ay, bx, by);
   });
 
+  // Pie de página
   doc.setFontSize(6);
   doc.setTextColor(...gray);
   doc.text(`Generado el ${new Date().toLocaleDateString("es-VE")}`, W - 5, H - 4, { align:"right" });
