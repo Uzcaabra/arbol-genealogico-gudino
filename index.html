@@ -482,9 +482,11 @@ function initFirebase() {
   const isPlaceholder = FIREBASE_CONFIG.apiKey.startsWith("TU_");
   document.getElementById("configNotice").classList.toggle("hidden", !isPlaceholder);
 
+  // Mostrar datos de semilla de inmediato para que el árbol no quede en blanco
+  loadLocalMode();
+
   if (isPlaceholder) {
     setStatus("Demo local (sin Firebase)", "error");
-    loadLocalMode();
     return;
   }
 
@@ -504,16 +506,16 @@ function initFirebase() {
     dbRef.on("value", snap => {
       const data = snap.val();
       if (data === null) {
-        // Base vacía → sembrar datos iniciales y renderizar de inmediato
+        // Base vacía → persistir los datos de semilla en Firebase
         seedData();
       } else {
+        // Firebase tiene datos → usarlos (reemplaza la vista local)
         people = data;
         renderTree();
       }
     });
   } catch (e) {
     setStatus("Error al inicializar Firebase: " + e.message, "error");
-    loadLocalMode();
   }
 }
 
