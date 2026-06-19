@@ -996,46 +996,53 @@ function exportPdf() {
 
   const posMap = {}; // id → { x, y }
 
-  // 5. Dibujar Tarjetas
+  // 5. Dibujar Tarjetas con el mismo orden que la web
   Object.keys(byGen).sort((a,b)=>+a-+b).forEach(g => {
     const ids = byGen[g];
+    
+    // --- ESTA ES LA LÓGICA QUE FALTABA ---
+    // Ordenar igual que en renderTree(): parejas juntas, luego solteros
+    const order = [];
+    const added = new Set();
+    ids.forEach(id => {
+      if (added.has(id)) return;
+      const p = people[id];
+      const spouseId = p.spouse;
+      if (spouseId && ids.includes(spouseId) && !added.has(spouseId)) {
+        order.push([id, spouseId]);
+        added.add(id); added.add(spouseId);
+      } else {
+        order.push([id]);
+        added.add(id);
+      }
+    });
+
     const totalW = ids.length * cardW + (ids.length > 0 ? ids.length - 1 : 0) * colGap;
-    let x = (W - totalW) / 2; // Ahora siempre dará positivo porque W es más grande que totalW
+    let x = (W - totalW) / 2;
     const y = startY + (+g) * (cardH + rowGap);
 
-    ids.forEach(id => {
-      posMap[id] = { x, y };
-      const p = people[id];
-      const color = p.gender === "F" ? red : p.gender === "M" ? blue : gray;
+    order.forEach(group => {
+      group.forEach(id => {
+        posMap[id] = { x, y };
+        const p = people[id];
+        const color = p.gender === "F" ? red : p.gender === "M" ? blue : gray;
 
-      // Card background
-      doc.setFillColor(255,255,255);
-      doc.roundedRect(x, y, cardW, cardH, 2, 2, "F");
+        // Dibujar tarjeta (igual que antes)
+        doc.setFillColor(255,255,255);
+        doc.roundedRect(x, y, cardW, cardH, 2, 2, "F");
+        doc.setFillColor(...color);
+        doc.roundedRect(x, y, cardW, 3, 1, 1, "F");
+        doc.rect(x, y+2, cardW, 1, "F");
+        doc.setTextColor(40,40,40);
+        doc.setFontSize(6.5);
+        doc.setFont("helvetica","bold");
+        const lines = doc.splitTextToSize(p.name, cardW - 4);
+        doc.text(lines.slice(0,2), x + cardW/2, y + 8, { align:"center" });
+        
+        // ... (resto del código de fechas igual que antes)
 
-      // Color top strip
-      doc.setFillColor(...color);
-      doc.roundedRect(x, y, cardW, 3, 1, 1, "F");
-      doc.rect(x, y+2, cardW, 1, "F");
-
-      // Name
-      doc.setTextColor(40,40,40);
-      doc.setFontSize(6.5);
-      doc.setFont("helvetica","bold");
-      const lines = doc.splitTextToSize(p.name, cardW - 4);
-      doc.text(lines.slice(0,2), x + cardW/2, y + 8, { align:"center" });
-
-      // Dates
-      const dates = [];
-      if (p.birth) dates.push("n. " + p.birth);
-      if (p.death) dates.push("† " + p.death);
-      if (dates.length) {
-        doc.setFontSize(5.5);
-        doc.setFont("helvetica","normal");
-        doc.setTextColor(...gray);
-        doc.text(dates.join(" — "), x + cardW/2, y + cardH - 3, { align:"center" });
-      }
-
-      x += cardW + colGap;
+        x += cardW + colGap;
+      });
     });
   });
 
