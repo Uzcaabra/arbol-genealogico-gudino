@@ -504,7 +504,7 @@ function initFirebase() {
     dbRef.on("value", snap => {
       const data = snap.val();
       if (data === null) {
-        // Base vacía → sembrar datos iniciales
+        // Base vacía → sembrar datos iniciales y renderizar de inmediato
         seedData();
       } else {
         people = data;
@@ -543,7 +543,11 @@ function seedData() {
     delete obj._key;
     writes[id] = obj;
   });
-  dbRef.set(writes);
+  // Poblar localmente de inmediato y renderizar sin esperar a Firebase
+  people = { ...writes };
+  renderTree();
+  // Luego persistir en Firebase (el listener on("value") volverá a disparar pero no importa)
+  if (dbRef) dbRef.set(writes);
 }
 
 // ════════════════════════════════════════════════════════
