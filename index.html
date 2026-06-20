@@ -1035,7 +1035,7 @@ function exportPdf() {
     });
   });
 
-  // Conectores Padre-Hijo
+  // 4. Dibujar Líneas (Conectores)
   Object.entries(people).forEach(([childId, child]) => {
     const fId = child.father, mId = child.mother;
     if (!fId && !mId) return;
@@ -1063,7 +1063,7 @@ function exportPdf() {
     doc.setLineDashPattern([], 0);
   });
 
-  // Conectores Cónyuges
+  // 5. Conectores de cónyuges
   const drawnSpouses = new Set();
   Object.entries(people).forEach(([id, p]) => {
     if (!p.spouse || drawnSpouses.has(id+p.spouse) || drawnSpouses.has(p.spouse+id)) return;
