@@ -939,24 +939,6 @@ function drawConnectors(gen) {
 // ════════════════════════════════════════════════════════
 document.getElementById("btnExportPdf").addEventListener("click", exportPdf);
 
-// Función auxiliar para agrupar familias por generación
-function getFamilyGroups(ids) {
-  const groups = [];
-  const added = new Set();
-  ids.forEach(id => {
-    if (added.has(id)) return;
-    const p = people[id];
-    if (p.spouse && ids.includes(p.spouse) && !added.has(p.spouse)) {
-      groups.push([id, p.spouse]);
-      added.add(id); added.add(p.spouse);
-    } else {
-      groups.push([id]);
-      added.add(id);
-    }
-  });
-  return groups;
-}
-
 function exportPdf() {
   const { jsPDF } = window.jspdf;
 
@@ -974,10 +956,24 @@ function exportPdf() {
     byGen[g].push(id);
   });
 
+  // 1. Lógica mejorada: Ordenar familias por conexión con la generación anterior
+  const getSortedGroups = (ids, genLevel) => {
+    let groups = getFamilyGroups(ids);
+    // Ordenar los grupos para que sigan el flujo del árbol (padres -> hijos)
+    return groups.sort((a, b) => {
+      const pA = people[a[0]];
+      const pB = people[b[0]];
+      // Si tienen padres, los ordenamos por el ID del padre para mantener la estructura
+      const fatherA = pA.father || "";
+      const fatherB = pB.father || "";
+      return fatherA.localeCompare(fatherB);
+    });
+  };
+
+  // 2. Calcular dimensiones totales
   let maxRowWidth = 0;
   Object.keys(byGen).forEach(g => {
-    const ids = byGen[g];
-    const groups = getFamilyGroups(ids); 
+    const groups = getSortedGroups(byGen[g], g); 
     const w = groups.reduce((acc, grp) => acc + (grp.length * cardW) + ((grp.length-1) * 4) + colGap, 0);
     if (w > maxRowWidth) maxRowWidth = w;
   });
@@ -998,10 +994,10 @@ function exportPdf() {
 
   const posMap = {};
 
-  // Dibujar Tarjetas
+  // 3. Dibujar Tarjetas con orden de árbol
   Object.keys(byGen).sort((a,b)=>+a-+b).forEach(g => {
-    const ids = byGen[g];
-    const groups = getFamilyGroups(ids);
+    const groups = getSortedGroups(byGen[g], g);
+    
     const totalW = groups.reduce((acc, grp) => acc + (grp.length * cardW) + ((grp.length-1) * 4) + colGap, 0);
     let x = (W - totalW) / 2;
     const y = startY + (+g) * (cardH + rowGap);
@@ -1035,25 +1031,18 @@ function exportPdf() {
     });
   });
 
-  // 4. Dibujar Líneas (Conectores)
+  // 4. Conectores
   Object.entries(people).forEach(([childId, child]) => {
     const fId = child.father, mId = child.mother;
-    if (!fId && !mId) return;
-    const cp = posMap[childId]; if (!cp) return;
-
-    let midX;
-    if (fId && mId) {
-      const fp = posMap[fId], mp = posMap[mId];
-      if (!fp || !mp) return;
-      midX = ((fp.x + cardW/2) + (mp.x + cardW/2)) / 2;
-    } else {
-      const pp = posMap[fId || mId]; if (!pp) return;
-      midX = pp.x + cardW/2;
-    }
-
-    const parentY = (posMap[fId || mId]?.y ?? 0) + cardH;
-    const midY    = parentY + rowGap / 2;
-    const childX  = cp.x + cardW/2;
+    if (!fId || !posMap[childId] || (!posMap[fId] && !posMap[mId])) return;
+    
+    const cp = posMap[childId];
+    const parentPos = posMap[fId] || posMap[mId];
+    
+    let midX = parentPos.x + cardW/2;
+    const parentY = parentPos.y + cardH;
+    const midY = parentY + rowGap / 2;
+    const childX = cp.x + cardW/2;
     const childTop = cp.y;
 
     doc.setDrawColor(...brown);
@@ -1063,24 +1052,6 @@ function exportPdf() {
     doc.setLineDashPattern([], 0);
   });
 
-  // 5. Conectores de cónyuges
-  const drawnSpouses = new Set();
-  Object.entries(people).forEach(([id, p]) => {
-    if (!p.spouse || drawnSpouses.has(id+p.spouse) || drawnSpouses.has(p.spouse+id)) return;
-    const a = posMap[id], b = posMap[p.spouse];
-    if (!a || !b) return;
-    drawnSpouses.add(id+p.spouse);
-    doc.setDrawColor(...brown);
-    doc.setLineWidth(0.8);
-    doc.setLineDashPattern([], 0);
-    const ay = a.y + cardH/2, by = b.y + cardH/2;
-    const ax = a.x + (b.x > a.x ? cardW : 0);
-    const bx = b.x + (b.x > a.x ? 0 : cardW);
-    doc.line(ax, ay, bx, by);
-  });
-
-  doc.setFontSize(6); doc.setTextColor(...gray);
-  doc.text(`Generado el ${new Date().toLocaleDateString("es-VE")}`, W - 5, H - 4, { align:"right" });
   doc.save(`arbol-gudino-${Date.now()}.pdf`);
 }
 
