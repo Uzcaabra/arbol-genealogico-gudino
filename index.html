@@ -786,8 +786,24 @@ function computeOrder() {
       }
     }
 
-    // Visitar los hijos (de este id o de su cónyuge) en profundidad
-    childrenOf(id).forEach(visit);
+    // Visitar los hijos en profundidad, AGRUPADOS por el otro progenitor
+    // (mantiene a los medio-hermanos juntos cuando hay varias parejas)
+    const kids = childrenOf(id);
+    const byCoParent = new Map();
+    kids.forEach(k => {
+      const c = people[k];
+      const coParent = (c.father === id) ? c.mother : c.father;
+      const coKey = coParent || "_";
+      if (!byCoParent.has(coKey)) byCoParent.set(coKey, []);
+      byCoParent.get(coKey).push(k);
+    });
+    // Ordenar los grupos: primero el del cónyuge ya colocado, luego el resto
+    const groups = [...byCoParent.entries()].sort((a, b) => {
+      const oa = a[0] === spId ? -1 : (order[a[0]] ?? 9999);
+      const ob = b[0] === spId ? -1 : (order[b[0]] ?? 9999);
+      return oa - ob;
+    });
+    groups.forEach(([, grp]) => grp.forEach(visit));
   }
 
   // Empezar por las raíces (sin padres), las generaciones más antiguas primero
