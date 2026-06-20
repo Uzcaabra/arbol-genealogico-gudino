@@ -121,10 +121,7 @@
       position: absolute;
       top: 0;
       left: 0;
-      width: 100%;
-      height: 100%;
       pointer-events: none;
-      overflow: visible;
       z-index: 0;
     }
     #treeNodes {
@@ -882,9 +879,14 @@ function drawConnectors(gen) {
   const wrap = document.getElementById("treeWrapper");
   const wRect = wrap.getBoundingClientRect();
 
-  svg.setAttribute("viewBox", `0 0 ${wrap.scrollWidth} ${wrap.scrollHeight}`);
-  svg.style.width  = wrap.scrollWidth  + "px";
-  svg.style.height = wrap.scrollHeight + "px";
+  // Dimensionar SVG al tamaño completo del contenido
+  const w = Math.max(wrap.scrollWidth, wrap.offsetWidth);
+  const h = Math.max(wrap.scrollHeight, wrap.offsetHeight);
+  svg.setAttribute("width", w);
+  svg.setAttribute("height", h);
+  svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+  svg.style.width  = w + "px";
+  svg.style.height = h + "px";
 
   function cardRect(id) {
     const el = document.querySelector(`.person-card[data-id="${id}"]`);
@@ -902,18 +904,25 @@ function drawConnectors(gen) {
     };
   }
 
-  function makeLine(d, dashed) {
+  // Colores por familia para distinguir ramas visualmente
+  const familyColors = [
+    "#8B6F47", "#C0392B", "#2980B9", "#27AE60", "#8E44AD",
+    "#D35400", "#16A085", "#C4A882", "#7F8C8D", "#2C3E50"
+  ];
+  let colorIdx = 0;
+
+  function makeLine(d, color, dashed, width) {
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
     path.setAttribute("fill", "none");
-    path.setAttribute("stroke", "#C4A882");
-    path.setAttribute("stroke-width", dashed ? "2" : "2.5");
+    path.setAttribute("stroke", color);
+    path.setAttribute("stroke-width", String(width || 2));
     if (dashed) path.setAttribute("stroke-dasharray", "6,4");
     path.setAttribute("stroke-linecap", "round");
     path.setAttribute("d", d);
     svg.appendChild(path);
   }
 
-  // Agrupar hijos por su par de padres (father+mother)
+  // Agrupar hijos por su par de padres
   const familyGroups = {};
   Object.entries(people).forEach(([childId, child]) => {
     if (!child.father && !child.mother) return;
@@ -925,8 +934,9 @@ function drawConnectors(gen) {
   // Para cada familia: dibujar conectores con patrón clásico
   Object.values(familyGroups).forEach(family => {
     const { father, mother, children } = family;
+    const color = familyColors[colorIdx % familyColors.length];
+    colorIdx++;
 
-    // Calcular punto de origen (centro entre padres, o centro del único padre)
     let originX, originY;
     if (father && mother) {
       const fr = cardRect(father), mr = cardRect(mother);
@@ -940,7 +950,6 @@ function drawConnectors(gen) {
       originY = pr.bottom;
     }
 
-    // Obtener posiciones de los hijos
     const childRects = children
       .map(id => ({ id, rect: cardRect(id) }))
       .filter(c => c.rect)
@@ -948,26 +957,28 @@ function drawConnectors(gen) {
 
     if (childRects.length === 0) return;
 
-    // Altura de la barra horizontal de hermanos (punto medio entre padres e hijos)
     const firstChildTop = childRects[0].rect.top;
-    const barY = originY + (firstChildTop - originY) * 0.45;
+    const barY = originY + (firstChildTop - originY) * 0.4;
 
-    // 1. Línea vertical troncal: desde padres hacia abajo hasta la barra
-    makeLine(`M ${originX} ${originY + 4} L ${originX} ${barY}`, false);
+    // 1. Línea troncal: padres → barra
+    makeLine(`M ${originX} ${originY + 6} L ${originX} ${barY}`, color, false, 2.5);
 
     if (childRects.length === 1) {
-      // Hijo único: solo línea vertical directa
       const c = childRects[0];
-      makeLine(`M ${originX} ${barY} L ${c.rect.cx} ${barY} L ${c.rect.cx} ${c.rect.top - 4}`, true);
+      if (Math.abs(c.rect.cx - originX) < 2) {
+        makeLine(`M ${originX} ${barY} L ${originX} ${c.rect.top - 6}`, color, true, 2);
+      } else {
+        makeLine(`M ${originX} ${barY} L ${c.rect.cx} ${barY} L ${c.rect.cx} ${c.rect.top - 6}`, color, true, 2);
+      }
     } else {
       // 2. Barra horizontal de hermanos
       const leftX  = childRects[0].rect.cx;
       const rightX = childRects[childRects.length - 1].rect.cx;
-      makeLine(`M ${leftX} ${barY} L ${rightX} ${barY}`, false);
+      makeLine(`M ${leftX} ${barY} L ${rightX} ${barY}`, color, false, 2.5);
 
-      // 3. Líneas verticales desde la barra hacia cada hijo
+      // 3. Bajadas a cada hijo
       childRects.forEach(c => {
-        makeLine(`M ${c.rect.cx} ${barY} L ${c.rect.cx} ${c.rect.top - 4}`, true);
+        makeLine(`M ${c.rect.cx} ${barY} L ${c.rect.cx} ${c.rect.top - 6}`, color, true, 1.5);
       });
     }
   });
