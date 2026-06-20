@@ -741,6 +741,62 @@ function calcGenerations() {
 }
 
 // ════════════════════════════════════════════════════════
+//  ORDENAMIENTO POR SUBÁRBOL
+//  Recorre el árbol en profundidad y asigna a cada persona un
+//  número de orden, de modo que los hermanos (y cada rama
+//  completa) queden siempre contiguos en su generación.
+// ════════════════════════════════════════════════════════
+// Cónyuge en cualquier dirección (los datos a veces solo lo guardan en un lado)
+function spouseOf(id) {
+  if (people[id] && people[id].spouse && people[people[id].spouse]) return people[id].spouse;
+  const rev = Object.keys(people).find(k => people[k].spouse === id);
+  return rev || null;
+}
+
+function computeOrder() {
+  const order = {};
+  let counter = 0;
+  const visited = new Set();
+  const gen = calcGenerations();
+
+  function childrenOf(id) {
+    return Object.keys(people)
+      .filter(cid => people[cid].father === id || people[cid].mother === id)
+      .sort((a, b) => (people[a].name || "").localeCompare(people[b].name || ""));
+  }
+
+  function visit(id) {
+    if (visited.has(id)) return;
+    visited.add(id);
+    order[id] = counter++;
+
+    // Colocar al cónyuge que entró por matrimonio (sin padres) justo al lado
+    const spId = spouseOf(id);
+    if (spId && !visited.has(spId)) {
+      const sp = people[spId];
+      if (!sp.father && !sp.mother) {
+        visited.add(spId);
+        order[spId] = counter++;
+      }
+    }
+
+    // Visitar los hijos (de este id o de su cónyuge) en profundidad
+    childrenOf(id).forEach(visit);
+  }
+
+  // Empezar por las raíces (sin padres), las generaciones más antiguas primero
+  Object.keys(people)
+    .filter(id => !people[id].father && !people[id].mother)
+    .sort((a, b) => (gen[a] - gen[b]) || (people[a].name || "").localeCompare(people[b].name || ""))
+    .forEach(visit);
+
+  // Cualquier persona suelta que haya quedado
+  Object.keys(people).forEach(visit);
+
+  return order;
+}
+
+// ════════════════════════════════════════════════════════
 //  RENDERIZADO DEL ÁRBOL
 // ════════════════════════════════════════════════════════
 function initials(name) {
@@ -775,6 +831,9 @@ function renderTree() {
   // Identificar parejas para renderizar juntos
   const rendered = new Set();
 
+  // Orden por subárbol: mantiene a los hermanos y cada rama contiguos
+  const orderMap = computeOrder();
+
   const genLabels = ["Fundadores", "Segunda generación", "Tercera generación", "Cuarta generación", "Quinta generación"];
 
   Object.keys(byGen).sort((a,b)=>a-b).forEach(g => {
@@ -787,20 +846,14 @@ function renderTree() {
     row.className = "gen-row";
     row.dataset.gen = g;
 
-    const ids = byGen[g].sort((a, b) => {
-      const pA = people[a], pB = people[b];
-      const parentA = (pA.father || pA.mother || "0");
-      const parentB = (pB.father || pB.mother || "0");
-      return parentA.localeCompare(parentB);
-    });
+    const ids = byGen[g].slice().sort((a, b) => (orderMap[a] ?? 0) - (orderMap[b] ?? 0));
 
     const order = [];
     const added = new Set();
 
     ids.forEach(id => {
       if (added.has(id)) return;
-      const p = people[id];
-      const spouseId = p.spouse;
+      const spouseId = spouseOf(id);
       if (spouseId && ids.includes(spouseId) && !added.has(spouseId)) {
         order.push([id, spouseId]);
         added.add(id); added.add(spouseId);
@@ -960,27 +1013,24 @@ function drawConnectors(gen) {
     if (childRects.length === 0) return;
 
     const firstChildTop = childRects[0].rect.top;
-    const barY = originY + (firstChildTop - originY) * 0.4;
+    // Barra de hermanos cerca de los hijos → tronco largo, bajadas cortas (más limpio)
+    const barY = originY + (firstChildTop - originY) * 0.7;
 
     // 1. Línea troncal: padres → barra
-    makeLine(`M ${originX} ${originY + 6} L ${originX} ${barY}`, color, false, 2.5);
+    makeLine(`M ${originX} ${originY + 6} L ${originX} ${barY}`, color, false, 2);
 
     if (childRects.length === 1) {
       const c = childRects[0];
-      if (Math.abs(c.rect.cx - originX) < 2) {
-        makeLine(`M ${originX} ${barY} L ${originX} ${c.rect.top - 6}`, color, true, 2);
-      } else {
-        makeLine(`M ${originX} ${barY} L ${c.rect.cx} ${barY} L ${c.rect.cx} ${c.rect.top - 6}`, color, true, 2);
-      }
+      makeLine(`M ${originX} ${barY} L ${c.rect.cx} ${barY} L ${c.rect.cx} ${c.rect.top - 6}`, color, false, 2);
     } else {
       // 2. Barra horizontal de hermanos
       const leftX  = childRects[0].rect.cx;
       const rightX = childRects[childRects.length - 1].rect.cx;
-      makeLine(`M ${leftX} ${barY} L ${rightX} ${barY}`, color, false, 2.5);
+      makeLine(`M ${leftX} ${barY} L ${rightX} ${barY}`, color, false, 2);
 
-      // 3. Bajadas a cada hijo
+      // 3. Bajadas cortas a cada hijo
       childRects.forEach(c => {
-        makeLine(`M ${c.rect.cx} ${barY} L ${c.rect.cx} ${c.rect.top - 6}`, color, true, 1.5);
+        makeLine(`M ${c.rect.cx} ${barY} L ${c.rect.cx} ${c.rect.top - 6}`, color, false, 2);
       });
     }
   });
