@@ -133,18 +133,26 @@
     }
 
     /* ── Generation rows ── */
+    .gen-label {
+      font-size: 0.7rem;
+      color: var(--brown-lt);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 10px;
+      padding-left: 12px;
+    }
     .gen-row {
       display: flex;
       flex-wrap: nowrap;
       align-items: flex-start;
-      gap: 20px;
-      margin-bottom: 60px;
+      gap: 24px;
+      margin-bottom: 100px;
       padding: 0 10px;
     }
     .gen-group {
       display: flex;
       flex-wrap: nowrap;
-      gap: 12px;
+      gap: 14px;
       align-items: flex-start;
     }
 
@@ -768,20 +776,23 @@ function renderTree() {
   // Identificar parejas para renderizar juntos
   const rendered = new Set();
 
+  const genLabels = ["Fundadores", "Segunda generación", "Tercera generación", "Cuarta generación", "Quinta generación"];
+
   Object.keys(byGen).sort((a,b)=>a-b).forEach(g => {
+    const label = document.createElement("div");
+    label.className = "gen-label";
+    label.textContent = genLabels[+g] || ("Generación " + (+g + 1));
+    nodesEl.appendChild(label);
+
     const row = document.createElement("div");
     row.className = "gen-row";
     row.dataset.gen = g;
 
-    // --- NUEVA LÓGICA DE ORDENAMIENTO ---
-    // Ordenamos los IDs de esta generación basándonos en el ID del padre/madre 
-    // para mantener a los hermanos juntos
     const ids = byGen[g].sort((a, b) => {
-        const pA = people[a];
-        const pB = people[b];
-        const parentA = (pA.father || pA.mother || "0");
-        const parentB = (pB.father || pB.mother || "0");
-        return parentA.localeCompare(parentB);
+      const pA = people[a], pB = people[b];
+      const parentA = (pA.father || pA.mother || "0");
+      const parentB = (pB.father || pB.mother || "0");
+      return parentA.localeCompare(parentB);
     });
 
     const order = [];
@@ -791,7 +802,6 @@ function renderTree() {
       if (added.has(id)) return;
       const p = people[id];
       const spouseId = p.spouse;
-      // Agrupar parejas
       if (spouseId && ids.includes(spouseId) && !added.has(spouseId)) {
         order.push([id, spouseId]);
         added.add(id); added.add(spouseId);
@@ -868,8 +878,8 @@ function makeCard(id) {
 //  SVG CONNECTORS
 // ════════════════════════════════════════════════════════
 function drawConnectors(gen) {
-  const svg   = document.getElementById("treeSvg");
-  const wrap  = document.getElementById("treeWrapper");
+  const svg  = document.getElementById("treeSvg");
+  const wrap = document.getElementById("treeWrapper");
   const wRect = wrap.getBoundingClientRect();
 
   svg.setAttribute("viewBox", `0 0 ${wrap.scrollWidth} ${wrap.scrollHeight}`);
@@ -879,70 +889,88 @@ function drawConnectors(gen) {
   function cardRect(id) {
     const el = document.querySelector(`.person-card[data-id="${id}"]`);
     if (!el) return null;
-    const r  = el.getBoundingClientRect();
+    const r = el.getBoundingClientRect();
     return {
       left:   r.left   - wRect.left + wrap.scrollLeft,
       top:    r.top    - wRect.top  + wrap.scrollTop,
       right:  r.right  - wRect.left + wrap.scrollLeft,
       bottom: r.bottom - wRect.top  + wrap.scrollTop,
-      cx:     r.left   - wRect.left + wrap.scrollLeft + r.width  / 2,
+      cx:     r.left   - wRect.left + wrap.scrollLeft + r.width / 2,
       cy:     r.top    - wRect.top  + wrap.scrollTop  + r.height / 2,
       width:  r.width,
       height: r.height,
     };
   }
 
-  // Para cada persona con padres, dibuja línea padre→hijo
-  const processed = new Set();
-
-  Object.entries(people).forEach(([childId, child]) => {
-    const fatherId = child.father;
-    const motherId = child.mother;
-    if (!fatherId && !motherId) return;
-
-    const childRect = cardRect(childId);
-    if (!childRect) return;
-
-    let midX;
-
-    if (fatherId && motherId) {
-      const fr = cardRect(fatherId);
-      const mr = cardRect(motherId);
-      if (!fr || !mr) return;
-      // Midpoint between the two parents
-      midX = (fr.cx + mr.cx) / 2;
-    } else {
-      const pr = cardRect(fatherId || motherId);
-      if (!pr) return;
-      midX = pr.cx;
-    }
-
-    const parentY = fatherId
-      ? (cardRect(fatherId)?.bottom ?? 0)
-      : (cardRect(motherId)?.bottom ?? 0);
-
-    const midY    = parentY + (childRect.top - parentY) / 2;
-    const childX  = childRect.cx;
-    const childTop = childRect.top;
-
-    // Línea vertical desde padre/madres hacia abajo hasta punto medio
-    // Luego horizontal hacia childX, luego vertical hacia la tarjeta del hijo
-    const key = `${fatherId||""}-${motherId||""}-${childId}`;
-    if (processed.has(key)) return;
-    processed.add(key);
-
-    const path = document.createElementNS("http://www.w3.org/2000/svg","path");
+  function makeLine(d, dashed) {
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
     path.setAttribute("fill", "none");
     path.setAttribute("stroke", "#C4A882");
-    path.setAttribute("stroke-width", "2");
-    path.setAttribute("stroke-dasharray", "4,3");
-    path.setAttribute("d",
-      `M ${midX} ${parentY + 4} L ${midX} ${midY} L ${childX} ${midY} L ${childX} ${childTop - 4}`
-    );
+    path.setAttribute("stroke-width", dashed ? "2" : "2.5");
+    if (dashed) path.setAttribute("stroke-dasharray", "6,4");
+    path.setAttribute("stroke-linecap", "round");
+    path.setAttribute("d", d);
     svg.appendChild(path);
+  }
+
+  // Agrupar hijos por su par de padres (father+mother)
+  const familyGroups = {};
+  Object.entries(people).forEach(([childId, child]) => {
+    if (!child.father && !child.mother) return;
+    const key = (child.father || "_") + "|" + (child.mother || "_");
+    if (!familyGroups[key]) familyGroups[key] = { father: child.father, mother: child.mother, children: [] };
+    familyGroups[key].children.push(childId);
   });
 
-  // Línea horizontal entre cónyuges (ya la pone el div .couple-line, pero SVG para distantes)
+  // Para cada familia: dibujar conectores con patrón clásico
+  Object.values(familyGroups).forEach(family => {
+    const { father, mother, children } = family;
+
+    // Calcular punto de origen (centro entre padres, o centro del único padre)
+    let originX, originY;
+    if (father && mother) {
+      const fr = cardRect(father), mr = cardRect(mother);
+      if (!fr || !mr) return;
+      originX = (fr.cx + mr.cx) / 2;
+      originY = Math.max(fr.bottom, mr.bottom);
+    } else {
+      const pr = cardRect(father || mother);
+      if (!pr) return;
+      originX = pr.cx;
+      originY = pr.bottom;
+    }
+
+    // Obtener posiciones de los hijos
+    const childRects = children
+      .map(id => ({ id, rect: cardRect(id) }))
+      .filter(c => c.rect)
+      .sort((a, b) => a.rect.cx - b.rect.cx);
+
+    if (childRects.length === 0) return;
+
+    // Altura de la barra horizontal de hermanos (punto medio entre padres e hijos)
+    const firstChildTop = childRects[0].rect.top;
+    const barY = originY + (firstChildTop - originY) * 0.45;
+
+    // 1. Línea vertical troncal: desde padres hacia abajo hasta la barra
+    makeLine(`M ${originX} ${originY + 4} L ${originX} ${barY}`, false);
+
+    if (childRects.length === 1) {
+      // Hijo único: solo línea vertical directa
+      const c = childRects[0];
+      makeLine(`M ${originX} ${barY} L ${c.rect.cx} ${barY} L ${c.rect.cx} ${c.rect.top - 4}`, true);
+    } else {
+      // 2. Barra horizontal de hermanos
+      const leftX  = childRects[0].rect.cx;
+      const rightX = childRects[childRects.length - 1].rect.cx;
+      makeLine(`M ${leftX} ${barY} L ${rightX} ${barY}`, false);
+
+      // 3. Líneas verticales desde la barra hacia cada hijo
+      childRects.forEach(c => {
+        makeLine(`M ${c.rect.cx} ${barY} L ${c.rect.cx} ${c.rect.top - 4}`, true);
+      });
+    }
+  });
 }
 
 // ════════════════════════════════════════════════════════
