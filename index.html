@@ -759,6 +759,14 @@ function spouseOf(id) {
   return rev || null;
 }
 
+// TODOS los cónyuges de una persona (soporta varias parejas), en cualquier dirección
+function spousesOf(id) {
+  const set = new Set();
+  if (people[id] && people[id].spouse && people[people[id].spouse]) set.add(people[id].spouse);
+  Object.keys(people).forEach(k => { if (people[k].spouse === id) set.add(k); });
+  return [...set];
+}
+
 function computeOrder() {
   const order = {};
   let counter = 0;
@@ -774,17 +782,15 @@ function computeOrder() {
   function visit(id) {
     if (visited.has(id)) return;
     visited.add(id);
-    order[id] = counter++;
 
-    // Colocar al cónyuge que entró por matrimonio (sin padres) justo al lado
-    const spId = spouseOf(id);
-    if (spId && !visited.has(spId)) {
-      const sp = people[spId];
-      if (!sp.father && !sp.mother) {
-        visited.add(spId);
-        order[spId] = counter++;
-      }
-    }
+    // Cónyuges que entraron por matrimonio (sin padres) y aún sin colocar.
+    // Se reparten alrededor de la persona: esposo(a) en el centro.
+    const spIds = spousesOf(id).filter(s =>
+      people[s] && !visited.has(s) && !people[s].father && !people[s].mother);
+    const half = Math.floor(spIds.length / 2);
+    spIds.slice(0, half).forEach(s => { visited.add(s); order[s] = counter++; });
+    order[id] = counter++;
+    spIds.slice(half).forEach(s => { visited.add(s); order[s] = counter++; });
 
     // Visitar los hijos en profundidad, AGRUPADOS por el otro progenitor
     // (mantiene a los medio-hermanos juntos cuando hay varias parejas)
@@ -797,12 +803,9 @@ function computeOrder() {
       if (!byCoParent.has(coKey)) byCoParent.set(coKey, []);
       byCoParent.get(coKey).push(k);
     });
-    // Ordenar los grupos: primero el del cónyuge ya colocado, luego el resto
-    const groups = [...byCoParent.entries()].sort((a, b) => {
-      const oa = a[0] === spId ? -1 : (order[a[0]] ?? 9999);
-      const ob = b[0] === spId ? -1 : (order[b[0]] ?? 9999);
-      return oa - ob;
-    });
+    // Ordenar los grupos según la posición del otro progenitor
+    const groups = [...byCoParent.entries()].sort((a, b) =>
+      (order[a[0]] ?? 9999) - (order[b[0]] ?? 9999));
     groups.forEach(([, grp]) => grp.forEach(visit));
   }
 
@@ -875,25 +878,19 @@ function renderTree() {
 
     ids.forEach(id => {
       if (added.has(id)) return;
-      const spouseId = spouseOf(id);
-      if (spouseId && ids.includes(spouseId) && !added.has(spouseId)) {
-        order.push([id, spouseId]);
-        added.add(id); added.add(spouseId);
-      } else {
-        order.push([id]);
-        added.add(id);
-      }
+      // Agrupar a la persona con todos sus cónyuges presentes en esta fila,
+      // respetando el orden ya calculado (esposo en el centro de sus parejas)
+      const mates = spousesOf(id).filter(s => ids.includes(s) && !added.has(s));
+      const group = [id, ...mates].sort((a, b) => (orderMap[a] ?? 0) - (orderMap[b] ?? 0));
+      group.forEach(x => added.add(x));
+      order.push(group);
     });
 
     let prevFamKey = null;
     order.forEach(group => {
       const wrapper = document.createElement("div");
-      if (group.length === 2) {
-        wrapper.className = "gen-group couple-bracket";
-        wrapper.dataset.couple = group.join(",");
-      } else {
-        wrapper.className = "gen-group";
-      }
+      wrapper.className = group.length >= 2 ? "gen-group couple-bracket" : "gen-group";
+      if (group.length >= 2) wrapper.dataset.couple = group.join(",");
 
       // Separar visualmente cuando cambia la familia (distinto par de padres)
       const fp = people[group[0]];
@@ -907,7 +904,8 @@ function renderTree() {
         if (rendered.has(id)) return;
         rendered.add(id);
         wrapper.appendChild(makeCard(id));
-        if (group.length === 2 && idx === 0) {
+        // Línea de unión entre cada par de cónyuges adyacentes
+        if (idx < group.length - 1) {
           const line = document.createElement("div");
           line.className = "couple-line";
           wrapper.appendChild(line);
