@@ -156,6 +156,10 @@
       gap: 14px;
       align-items: flex-start;
     }
+    /* Separación extra entre familias distintas */
+    .gen-group.family-start {
+      margin-left: 48px;
+    }
 
     /* ── Person card ── */
     .person-card {
@@ -865,6 +869,7 @@ function renderTree() {
       }
     });
 
+    let prevFamKey = null;
     order.forEach(group => {
       const wrapper = document.createElement("div");
       if (group.length === 2) {
@@ -873,6 +878,14 @@ function renderTree() {
       } else {
         wrapper.className = "gen-group";
       }
+
+      // Separar visualmente cuando cambia la familia (distinto par de padres)
+      const fp = people[group[0]];
+      const famKey = (fp.father || "_") + "|" + (fp.mother || "_");
+      if (prevFamKey !== null && famKey !== prevFamKey) {
+        wrapper.classList.add("family-start");
+      }
+      prevFamKey = famKey;
 
       group.forEach((id, idx) => {
         if (rendered.has(id)) return;
