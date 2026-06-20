@@ -946,7 +946,6 @@ function getFamilyGroups(ids) {
   ids.forEach(id => {
     if (added.has(id)) return;
     const p = people[id];
-    // Si tiene pareja y la pareja está en esta generación, agrúpalos
     if (p.spouse && ids.includes(p.spouse) && !added.has(p.spouse)) {
       groups.push([id, p.spouse]);
       added.add(id); added.add(p.spouse);
@@ -957,10 +956,10 @@ function getFamilyGroups(ids) {
   });
   return groups;
 }
+
 function exportPdf() {
   const { jsPDF } = window.jspdf;
 
-  // 1. Configuración
   const cardW = 42, cardH = 22, colGap = 12, rowGap = 14;
   const startY = 32;
 
@@ -975,7 +974,6 @@ function exportPdf() {
     byGen[g].push(id);
   });
 
-  // 2. Calcular dimensiones totales (ancho y alto dinámico)
   let maxRowWidth = 0;
   Object.keys(byGen).forEach(g => {
     const ids = byGen[g];
@@ -991,7 +989,6 @@ function exportPdf() {
   const cream = [244,240,230], creamDk = [237,230,214], brown = [139,111,71];
   const red = [192, 57, 43], blue = [41,128,185], gray = [127,140,141];
 
-  // Fondo y Encabezado
   doc.setFillColor(...cream); doc.rect(0, 0, W, H, "F");
   doc.setFillColor(...creamDk); doc.rect(0, 0, W, 24, "F");
   doc.setTextColor(...brown); doc.setFontSize(18); doc.setFont("helvetica","bold");
@@ -1001,11 +998,10 @@ function exportPdf() {
 
   const posMap = {};
 
-  // 3. Dibujar Tarjetas agrupadas
+  // Dibujar Tarjetas
   Object.keys(byGen).sort((a,b)=>+a-+b).forEach(g => {
     const ids = byGen[g];
     const groups = getFamilyGroups(ids);
-    
     const totalW = groups.reduce((acc, grp) => acc + (grp.length * cardW) + ((grp.length-1) * 4) + colGap, 0);
     let x = (W - totalW) / 2;
     const y = startY + (+g) * (cardH + rowGap);
@@ -1039,7 +1035,7 @@ function exportPdf() {
     });
   });
 
-  // 4. Dibujar Líneas (Conectores)
+  // Conectores Padre-Hijo
   Object.entries(people).forEach(([childId, child]) => {
     const fId = child.father, mId = child.mother;
     if (!fId && !mId) return;
@@ -1067,37 +1063,7 @@ function exportPdf() {
     doc.setLineDashPattern([], 0);
   });
 
-  doc.save(`arbol-gudino-${Date.now()}.pdf`);
-}
-  // 6. Conectores padres/hijos
-  Object.entries(people).forEach(([childId, child]) => {
-    const fId = child.father, mId = child.mother;
-    if (!fId && !mId) return;
-    const cp = posMap[childId]; if (!cp) return;
-
-    let midX;
-    if (fId && mId) {
-      const fp = posMap[fId], mp = posMap[mId];
-      if (!fp || !mp) return;
-      midX = ((fp.x + cardW/2) + (mp.x + cardW/2)) / 2;
-    } else {
-      const pp = posMap[fId || mId]; if (!pp) return;
-      midX = pp.x + cardW/2;
-    }
-
-    const parentY = (posMap[fId || mId]?.y ?? 0) + cardH;
-    const midY    = parentY + rowGap / 2;
-    const childX  = cp.x + cardW/2;
-    const childTop = cp.y;
-
-    doc.setDrawColor(...brown);
-    doc.setLineWidth(0.4);
-    doc.setLineDashPattern([1, 1], 0);
-    doc.lines([[0, midY - parentY],[childX-midX, 0],[0, childTop - midY]], midX, parentY);
-    doc.setLineDashPattern([], 0);
-  });
-
-  // 7. Conectores de cónyuges
+  // Conectores Cónyuges
   const drawnSpouses = new Set();
   Object.entries(people).forEach(([id, p]) => {
     if (!p.spouse || drawnSpouses.has(id+p.spouse) || drawnSpouses.has(p.spouse+id)) return;
@@ -1113,12 +1079,9 @@ function exportPdf() {
     doc.line(ax, ay, bx, by);
   });
 
-  // Pie de página
-  doc.setFontSize(6);
-  doc.setTextColor(...gray);
+  doc.setFontSize(6); doc.setTextColor(...gray);
   doc.text(`Generado el ${new Date().toLocaleDateString("es-VE")}`, W - 5, H - 4, { align:"right" });
-
-  doc.save(`arbol-genealogico-gudino-${Date.now()}.pdf`);
+  doc.save(`arbol-gudino-${Date.now()}.pdf`);
 }
 
 // ════════════════════════════════════════════════════════
@@ -1184,5 +1147,3 @@ window.addEventListener("resize", () => {
 
 initFirebase();
 </script>
-</body>
-</html>
