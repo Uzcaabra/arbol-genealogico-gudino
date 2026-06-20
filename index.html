@@ -939,6 +939,24 @@ function drawConnectors(gen) {
 // ════════════════════════════════════════════════════════
 document.getElementById("btnExportPdf").addEventListener("click", exportPdf);
 
+// Función auxiliar para agrupar familias por generación
+function getFamilyGroups(ids) {
+  const groups = [];
+  const added = new Set();
+  ids.forEach(id => {
+    if (added.has(id)) return;
+    const p = people[id];
+    // Si tiene pareja y la pareja está en esta generación, agrúpalos
+    if (p.spouse && ids.includes(p.spouse) && !added.has(p.spouse)) {
+      groups.push([id, p.spouse]);
+      added.add(id); added.add(p.spouse);
+    } else {
+      groups.push([id]);
+      added.add(id);
+    }
+  });
+  return groups;
+}
 function exportPdf() {
   const { jsPDF } = window.jspdf;
 
