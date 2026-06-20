@@ -769,8 +769,17 @@ function renderTree() {
     row.className = "gen-row";
     row.dataset.gen = g;
 
-    const ids = byGen[g];
-    // Ordenar: parejas juntas, luego solteros
+    // --- NUEVA LÓGICA DE ORDENAMIENTO ---
+    // Ordenamos los IDs de esta generación basándonos en el ID del padre/madre 
+    // para mantener a los hermanos juntos
+    const ids = byGen[g].sort((a, b) => {
+        const pA = people[a];
+        const pB = people[b];
+        const parentA = (pA.father || pA.mother || "0");
+        const parentB = (pB.father || pB.mother || "0");
+        return parentA.localeCompare(parentB);
+    });
+
     const order = [];
     const added = new Set();
 
@@ -778,12 +787,10 @@ function renderTree() {
       if (added.has(id)) return;
       const p = people[id];
       const spouseId = p.spouse;
+      // Agrupar parejas
       if (spouseId && ids.includes(spouseId) && !added.has(spouseId)) {
         order.push([id, spouseId]);
         added.add(id); added.add(spouseId);
-      } else if (!spouseId || !ids.includes(spouseId)) {
-        order.push([id]);
-        added.add(id);
       } else {
         order.push([id]);
         added.add(id);
