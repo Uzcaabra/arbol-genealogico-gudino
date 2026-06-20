@@ -1034,9 +1034,11 @@ function drawConnectors(gen) {
       const c = childRects[0];
       makeLine(`M ${originX} ${barY} L ${c.rect.cx} ${barY} L ${c.rect.cx} ${c.rect.top - 6}`, color, false, 2);
     } else {
-      // 2. Barra horizontal de hermanos
-      const leftX  = childRects[0].rect.cx;
-      const rightX = childRects[childRects.length - 1].rect.cx;
+      // 2. Barra horizontal de hermanos — extendida hasta debajo del padre
+      //    para que el brazo siempre conecte con el tronco aunque el padre
+      //    esté desplazado respecto a sus hijos
+      const leftX  = Math.min(childRects[0].rect.cx, originX);
+      const rightX = Math.max(childRects[childRects.length - 1].rect.cx, originX);
       makeLine(`M ${leftX} ${barY} L ${rightX} ${barY}`, color, false, 2);
 
       // 3. Bajadas cortas a cada hijo
