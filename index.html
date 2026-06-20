@@ -988,8 +988,17 @@ function drawConnectors(gen) {
     familyGroups[key].children.push(childId);
   });
 
+  // Ordenar las familias de izquierda a derecha (por la posición del padre en
+  // el árbol) para que los colores progresen de forma ordenada
+  const orderMap = computeOrder();
+  const sortedFamilies = Object.values(familyGroups).sort((a, b) => {
+    const oa = orderMap[a.father] ?? orderMap[a.mother] ?? 0;
+    const ob = orderMap[b.father] ?? orderMap[b.mother] ?? 0;
+    return oa - ob;
+  });
+
   // Para cada familia: dibujar conectores con patrón clásico
-  Object.values(familyGroups).forEach(family => {
+  sortedFamilies.forEach(family => {
     const { father, mother, children } = family;
     const color = familyColors[colorIdx % familyColors.length];
     colorIdx++;
