@@ -208,6 +208,28 @@
       font-style: italic;
     }
 
+    /* ── Banda de fallecimiento ── */
+    .person-card.is-deceased { opacity: 0.92; }
+    .card-deceased {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      font-size: 0.64rem;
+      font-style: italic;
+      color: #6b5d4f;
+      background: var(--cream-dk);
+      border-top: 1px solid var(--brown-lt);
+      border-radius: 0 0 9px 9px;
+      padding: 4px 6px;
+    }
+    .card-deceased .cross {
+      font-size: 0.8rem;
+      font-style: normal;
+      color: var(--brown);
+      line-height: 1;
+    }
+
     /* ── Couple bracket ── */
     .couple-bracket {
       display: flex;
@@ -939,17 +961,24 @@ function makeCard(id) {
   nameEl.className = "card-name";
   nameEl.textContent = p.name;
 
-  const dates = [];
-  if (p.birth) dates.push("n. " + p.birth);
-  if (p.death) dates.push("† " + p.death);
+  // Solo el nacimiento va en la línea de fechas; el fallecimiento va abajo
   const datesEl = document.createElement("div");
   datesEl.className = "card-dates";
-  datesEl.textContent = dates.join(" — ");
+  if (p.birth) datesEl.textContent = "n. " + p.birth;
 
   body.appendChild(nameEl);
   body.appendChild(datesEl);
   card.appendChild(avatar);
   card.appendChild(body);
+
+  // Banda de fallecimiento al pie de la tarjeta, con cruz
+  if (p.death || p.deceased) {
+    card.classList.add("is-deceased");
+    const dec = document.createElement("div");
+    dec.className = "card-deceased";
+    dec.innerHTML = `<span class="cross">✝</span> ${p.death ? p.death : "Fallecido/a"}`;
+    card.appendChild(dec);
+  }
 
   card.addEventListener("click", () => openModal(id));
   return card;
@@ -1024,7 +1053,10 @@ function drawConnectors(gen) {
     return oa - ob;
   });
 
-  // Para cada familia: dibujar conectores con patrón clásico
+  // Para cada familia: dibujar conectores con patrón clásico.
+  // Las barras se reparten en varios niveles (carriles) por generación para
+  // que no queden una encima de otra.
+  const laneCounter = {};
   sortedFamilies.forEach(family => {
     const { father, mother, children } = family;
     const color = familyColors[colorIdx % familyColors.length];
@@ -1051,8 +1083,11 @@ function drawConnectors(gen) {
     if (childRects.length === 0) return;
 
     const firstChildTop = childRects[0].rect.top;
-    // Barra de hermanos cerca de los hijos → tronco largo, bajadas cortas (más limpio)
-    const barY = originY + (firstChildTop - originY) * 0.7;
+    // Carril escalonado según la generación de los hijos (evita solapes)
+    const childGen = gen[childRects[0].id] ?? 0;
+    const lane = (laneCounter[childGen] = (laneCounter[childGen] ?? -1) + 1) % 3;
+    const frac = 0.5 + lane * 0.16;   // niveles: 0.50, 0.66, 0.82
+    const barY = originY + (firstChildTop - originY) * frac;
 
     // 1. Línea troncal: padres → barra
     makeLine(`M ${originX} ${originY + 6} L ${originX} ${barY}`, color, false, 2);
