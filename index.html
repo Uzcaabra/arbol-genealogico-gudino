@@ -1116,139 +1116,142 @@ function drawConnectors(gen) {
 // ════════════════════════════════════════════════════════
 document.getElementById("btnExportPdf").addEventListener("click", exportPdf);
 
-function getFamilyGroups(ids) {
-  const groups = [];
-  const used = new Set();
-  ids.forEach(id => {
-    if (used.has(id)) return;
-    const p = people[id];
-    const spouseId = p.spouse;
-    if (spouseId && ids.includes(spouseId) && !used.has(spouseId)) {
-      groups.push([id, spouseId]);
-      used.add(id);
-      used.add(spouseId);
-    } else {
-      groups.push([id]);
-      used.add(id);
-    }
-  });
-  return groups;
+// Convierte "#rrggbb" → [r,g,b]
+function hexToRgb(h) {
+  h = (h || "#000000").replace("#", "");
+  return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
 }
 
+// Exporta el PDF copiando EXACTAMENTE el árbol ya renderizado en pantalla,
+// para que se vea igual que la vista online.
 function exportPdf() {
   const { jsPDF } = window.jspdf;
 
-  const cardW = 42, cardH = 22, colGap = 12, rowGap = 14;
-  const startY = 32;
+  if (Object.keys(people).length === 0) { alert("El árbol está vacío."); return; }
 
-  const genMap = calcGenerations();
-  const maxGen = Math.max(...Object.values(genMap));
+  const wrap = document.getElementById("treeWrapper");
+  const svg  = document.getElementById("treeSvg");
 
-  const byGen = {};
-  for (let g = 0; g <= maxGen; g++) byGen[g] = [];
-  Object.keys(people).forEach(id => {
-    const g = genMap[id] ?? 0;
-    if (!byGen[g]) byGen[g] = [];
-    byGen[g].push(id);
+  // Asegurar que los conectores estén dibujados y actualizados antes de leerlos
+  drawConnectors(calcGenerations());
+
+  const wRect = wrap.getBoundingClientRect();
+
+  // Posición de un elemento relativa al lienzo del árbol
+  function rel(el) {
+    const r = el.getBoundingClientRect();
+    return {
+      x: r.left - wRect.left + wrap.scrollLeft,
+      y: r.top  - wRect.top  + wrap.scrollTop,
+      w: r.width,
+      h: r.height,
+    };
+  }
+
+  const HEADER = 80, MARGIN = 40;
+  const contentW = wrap.scrollWidth;
+  const contentH = wrap.scrollHeight;
+  const W = contentW + MARGIN * 2;
+  const H = contentH + HEADER + MARGIN * 2;
+  const offX = MARGIN;
+  const offY = HEADER + MARGIN;
+
+  const doc = new jsPDF({ unit: "px", format: [W, H], orientation: W >= H ? "landscape" : "portrait" });
+
+  const cream = [244,240,230], creamDk = [237,230,214], brown = [139,111,71], gray = [127,140,141];
+  const topColor   = { F: [192,57,43],  M: [41,128,185], O: [127,140,141] };
+  const avatarColor= { F: [241,148,138], M: [133,193,233], O: [189,195,199] };
+
+  // Fondo crema + banda de encabezado
+  doc.setFillColor(...cream);  doc.rect(0, 0, W, H, "F");
+  doc.setFillColor(...creamDk); doc.rect(0, 0, W, HEADER, "F");
+  doc.setDrawColor(196,168,130); doc.setLineWidth(2); doc.line(0, HEADER, W, HEADER);
+  doc.setTextColor(...brown); doc.setFont("helvetica","bold"); doc.setFontSize(30);
+  doc.text(FAMILY_NAME, W/2, 40, { align:"center" });
+  doc.setFont("helvetica","italic"); doc.setFontSize(14); doc.setTextColor(...gray);
+  doc.text(FAMILY_ORIGIN, W/2, 62, { align:"center" });
+
+  // 1. Conectores: leer cada <path> del SVG y replicarlo
+  svg.querySelectorAll("path").forEach(path => {
+    const d = path.getAttribute("d") || "";
+    const stroke = path.getAttribute("stroke") || "#C4A882";
+    doc.setDrawColor(...hexToRgb(stroke));
+    doc.setLineWidth(2);
+    const t = d.trim().split(/[\s,]+/);
+    let cx = null, cy = null, i = 0;
+    while (i < t.length) {
+      if (t[i] === "M") { cx = +t[i+1] + offX; cy = +t[i+2] + offY; i += 3; }
+      else if (t[i] === "L") { const nx = +t[i+1] + offX, ny = +t[i+2] + offY; doc.line(cx, cy, nx, ny); cx = nx; cy = ny; i += 3; }
+      else i++;
+    }
   });
 
-  // 1. Lógica mejorada: Ordenar familias por conexión con la generación anterior
-  const getSortedGroups = (ids, genLevel) => {
-    let groups = getFamilyGroups(ids);
-    // Ordenar los grupos para que sigan el flujo del árbol (padres -> hijos)
-    return groups.sort((a, b) => {
-      const pA = people[a[0]];
-      const pB = people[b[0]];
-      // Si tienen padres, los ordenamos por el ID del padre para mantener la estructura
-      const fatherA = pA.father || "";
-      const fatherB = pB.father || "";
-      return fatherA.localeCompare(fatherB);
-    });
-  };
-
-  // 2. Calcular dimensiones totales
-  let maxRowWidth = 0;
-  Object.keys(byGen).forEach(g => {
-    const groups = getSortedGroups(byGen[g], g); 
-    const w = groups.reduce((acc, grp) => acc + (grp.length * cardW) + ((grp.length-1) * 4) + colGap, 0);
-    if (w > maxRowWidth) maxRowWidth = w;
+  // 2. Líneas de unión de parejas (divs .couple-line)
+  document.querySelectorAll(".couple-line").forEach(el => {
+    const r = rel(el);
+    doc.setDrawColor(196,168,130); doc.setLineWidth(3);
+    doc.line(offX + r.x, offY + r.y + r.h/2, offX + r.x + r.w, offY + r.y + r.h/2);
   });
 
-  const W = Math.max(297, maxRowWidth + 40);
-  const H = Math.max(210, startY + (maxGen + 1) * (cardH + rowGap) + 40);
+  // 3. Tarjetas
+  document.querySelectorAll(".person-card").forEach(card => {
+    const id = card.dataset.id;
+    const p = people[id];
+    if (!p) return;
+    const g = p.gender || "O";
+    const cr = rel(card);
+    const x = offX + cr.x, y = offY + cr.y;
 
-  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: [W, H] });
-  const cream = [244,240,230], creamDk = [237,230,214], brown = [139,111,71];
-  const red = [192, 57, 43], blue = [41,128,185], gray = [127,140,141];
+    // Fondo blanco + franja superior de color
+    doc.setFillColor(255,255,255);
+    doc.roundedRect(x, y, cr.w, cr.h, 8, 8, "F");
+    doc.setFillColor(...(topColor[g] || topColor.O));
+    doc.roundedRect(x, y, cr.w, 5, 3, 3, "F");
+    doc.rect(x, y + 3, cr.w, 2, "F");
 
-  doc.setFillColor(...cream); doc.rect(0, 0, W, H, "F");
-  doc.setFillColor(...creamDk); doc.rect(0, 0, W, 24, "F");
-  doc.setTextColor(...brown); doc.setFontSize(18); doc.setFont("helvetica","bold");
-  doc.text(FAMILY_NAME, W/2, 11, { align:"center" });
-  doc.setFontSize(9); doc.setTextColor(...gray);
-  doc.text(FAMILY_ORIGIN, W/2, 18, { align:"center" });
+    // Avatar circular con iniciales
+    const avEl = card.querySelector(".card-avatar");
+    if (avEl) {
+      const ar = rel(avEl);
+      const acx = offX + ar.x + ar.w/2, acy = offY + ar.y + ar.h/2, rad = ar.w/2;
+      doc.setFillColor(...(avatarColor[g] || avatarColor.O));
+      doc.circle(acx, acy, rad, "F");
+      doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(rad * 0.85);
+      doc.text(initials(p.name), acx, acy + rad * 0.35, { align:"center" });
+    }
 
-  const posMap = {};
+    // Nombre
+    const nameEl = card.querySelector(".card-name");
+    if (nameEl) {
+      const nr = rel(nameEl);
+      doc.setTextColor(34,34,34); doc.setFont("helvetica","bold"); doc.setFontSize(11);
+      const lines = doc.splitTextToSize(p.name, cr.w - 12);
+      let ly = offY + nr.y + 10;
+      lines.forEach(line => { doc.text(line, offX + cr.x + cr.w/2, ly, { align:"center" }); ly += 12; });
+    }
 
-  // 3. Dibujar Tarjetas con orden de árbol
-  Object.keys(byGen).sort((a,b)=>+a-+b).forEach(g => {
-    const groups = getSortedGroups(byGen[g], g);
-    
-    const totalW = groups.reduce((acc, grp) => acc + (grp.length * cardW) + ((grp.length-1) * 4) + colGap, 0);
-    let x = (W - totalW) / 2;
-    const y = startY + (+g) * (cardH + rowGap);
+    // Nacimiento
+    const datesEl = card.querySelector(".card-dates");
+    if (datesEl && datesEl.textContent.trim()) {
+      const dr = rel(datesEl);
+      doc.setTextColor(...gray); doc.setFont("helvetica","italic"); doc.setFontSize(9);
+      doc.text(datesEl.textContent.trim(), offX + cr.x + cr.w/2, offY + dr.y + 8, { align:"center" });
+    }
 
-    groups.forEach(group => {
-      group.forEach(id => {
-        posMap[id] = { x, y };
-        const p = people[id];
-        const color = p.gender === "F" ? red : p.gender === "M" ? blue : gray;
-
-        doc.setFillColor(255,255,255);
-        doc.roundedRect(x, y, cardW, cardH, 2, 2, "F");
-        doc.setFillColor(...color);
-        doc.roundedRect(x, y, cardW, 3, 1, 1, "F");
-        doc.rect(x, y+2, cardW, 1, "F");
-        
-        doc.setTextColor(40,40,40); doc.setFontSize(6.5); doc.setFont("helvetica","bold");
-        const lines = doc.splitTextToSize(p.name, cardW - 4);
-        doc.text(lines.slice(0,2), x + cardW/2, y + 8, { align:"center" });
-
-        const dates = [];
-        if (p.birth) dates.push("n. " + p.birth);
-        if (p.death) dates.push("† " + p.death);
-        if (dates.length) {
-          doc.setFontSize(5.5); doc.setFont("helvetica","normal"); doc.setTextColor(...gray);
-          doc.text(dates.join(" — "), x + cardW/2, y + cardH - 3, { align:"center" });
-        }
-        x += cardW + 4;
-      });
-      x += colGap;
-    });
+    // Banda de fallecimiento con cruz
+    const decEl = card.querySelector(".card-deceased");
+    if (decEl) {
+      const dr = rel(decEl);
+      doc.setFillColor(...creamDk);
+      doc.rect(offX + dr.x, offY + dr.y, dr.w, dr.h, "F");
+      doc.setDrawColor(196,168,130); doc.setLineWidth(1);
+      doc.line(offX + dr.x, offY + dr.y, offX + dr.x + dr.w, offY + dr.y);
+      doc.setTextColor(107,93,79); doc.setFont("helvetica","normal"); doc.setFontSize(9);
+      doc.text(decEl.textContent.trim(), offX + dr.x + dr.w/2, offY + dr.y + dr.h/2 + 3, { align:"center" });
+    }
   });
 
-  // 4. Conectores
-  Object.entries(people).forEach(([childId, child]) => {
-    const fId = child.father, mId = child.mother;
-    if (!fId || !posMap[childId] || (!posMap[fId] && !posMap[mId])) return;
-    
-    const cp = posMap[childId];
-    const parentPos = posMap[fId] || posMap[mId];
-    
-    let midX = parentPos.x + cardW/2;
-    const parentY = parentPos.y + cardH;
-    const midY = parentY + rowGap / 2;
-    const childX = cp.x + cardW/2;
-    const childTop = cp.y;
-
-    doc.setDrawColor(...brown);
-    doc.setLineWidth(0.4);
-    doc.setLineDashPattern([1, 1], 0);
-    doc.lines([[0, midY - parentY],[childX-midX, 0],[0, childTop - midY]], midX, parentY);
-    doc.setLineDashPattern([], 0);
-  });
-
-  doc.save(`arbol-gudino-${Date.now()}.pdf`);
+  doc.save(`arbol-gudino-${new Date().toISOString().slice(0,10)}.pdf`);
 }
 
 // ════════════════════════════════════════════════════════
