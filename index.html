@@ -1163,40 +1163,53 @@ function exportPdf() {
     };
   }
 
-  const HEADER = 80, MARGIN = 40;
+  const HEADER = 80, MARGIN = 40;      // en px (espacio del DOM)
   const contentW = wrap.scrollWidth;
   const contentH = wrap.scrollHeight;
-  const W = contentW + MARGIN * 2;
-  const H = contentH + HEADER + MARGIN * 2;
-  const offX = MARGIN;
-  const offY = HEADER + MARGIN;
+  const totalW = contentW + MARGIN * 2;
+  const totalH = contentH + HEADER + MARGIN * 2;
 
-  const doc = new jsPDF({ unit: "px", format: [W, H], orientation: W >= H ? "landscape" : "portrait" });
+  // Ajustar TODO a una sola página A3 apaisada (420×297 mm) preservando la
+  // proporción, para que se imprima completo en una hoja sin cortes.
+  const A3W = 420, A3H = 297;
+  const aspect = totalW / totalH;
+  let pageW, pageH;
+  if (aspect >= A3W / A3H) { pageW = A3W; pageH = A3W / aspect; }
+  else                     { pageH = A3H; pageW = A3H * aspect; }
+  const S = pageW / totalW;            // mm por px
+
+  // Mapeo px (espacio del árbol) → mm (página)
+  const X = px => (MARGIN + px) * S;            // x con margen izquierdo
+  const Y = px => (HEADER + MARGIN + px) * S;    // y bajo el encabezado
+  const Z = px => px * S;                        // tamaños/radios/grosores
+  const F = px => Math.max(2, px * S / 0.352778);// px → pt (fuente)
+
+  const doc = new jsPDF({ unit: "mm", format: [pageW, pageH], orientation: pageW >= pageH ? "landscape" : "portrait" });
 
   const cream = [244,240,230], creamDk = [237,230,214], brown = [139,111,71], gray = [127,140,141];
   const topColor   = { F: [192,57,43],  M: [41,128,185], O: [127,140,141] };
   const avatarColor= { F: [241,148,138], M: [133,193,233], O: [189,195,199] };
 
   // Fondo crema + banda de encabezado
-  doc.setFillColor(...cream);  doc.rect(0, 0, W, H, "F");
-  doc.setFillColor(...creamDk); doc.rect(0, 0, W, HEADER, "F");
-  doc.setDrawColor(196,168,130); doc.setLineWidth(2); doc.line(0, HEADER, W, HEADER);
-  doc.setTextColor(...brown); doc.setFont("helvetica","bold"); doc.setFontSize(30);
-  doc.text(FAMILY_NAME, W/2, 40, { align:"center" });
-  doc.setFont("helvetica","italic"); doc.setFontSize(14); doc.setTextColor(...gray);
-  doc.text(FAMILY_ORIGIN, W/2, 62, { align:"center" });
+  doc.setFillColor(...cream);  doc.rect(0, 0, pageW, pageH, "F");
+  doc.setFillColor(...creamDk); doc.rect(0, 0, pageW, HEADER * S, "F");
+  doc.setDrawColor(196,168,130); doc.setLineWidth(Z(2)); doc.line(0, HEADER * S, pageW, HEADER * S);
+  doc.setTextColor(...brown); doc.setFont("helvetica","bold"); doc.setFontSize(Math.max(14, F(30)));
+  doc.text(FAMILY_NAME, pageW/2, 40 * S, { align:"center" });
+  doc.setFont("helvetica","italic"); doc.setFontSize(Math.max(8, F(14))); doc.setTextColor(...gray);
+  doc.text(FAMILY_ORIGIN, pageW/2, 62 * S, { align:"center" });
 
   // 1. Conectores: leer cada <path> del SVG y replicarlo
   svg.querySelectorAll("path").forEach(path => {
     const d = path.getAttribute("d") || "";
     const stroke = path.getAttribute("stroke") || "#C4A882";
     doc.setDrawColor(...hexToRgb(stroke));
-    doc.setLineWidth(2);
+    doc.setLineWidth(Z(2));
     const t = d.trim().split(/[\s,]+/);
     let cx = null, cy = null, i = 0;
     while (i < t.length) {
-      if (t[i] === "M") { cx = +t[i+1] + offX; cy = +t[i+2] + offY; i += 3; }
-      else if (t[i] === "L") { const nx = +t[i+1] + offX, ny = +t[i+2] + offY; doc.line(cx, cy, nx, ny); cx = nx; cy = ny; i += 3; }
+      if (t[i] === "M") { cx = X(+t[i+1]); cy = Y(+t[i+2]); i += 3; }
+      else if (t[i] === "L") { const nx = X(+t[i+1]), ny = Y(+t[i+2]); doc.line(cx, cy, nx, ny); cx = nx; cy = ny; i += 3; }
       else i++;
     }
   });
@@ -1204,8 +1217,8 @@ function exportPdf() {
   // 2. Líneas de unión de parejas (divs .couple-line)
   document.querySelectorAll(".couple-line").forEach(el => {
     const r = rel(el);
-    doc.setDrawColor(196,168,130); doc.setLineWidth(3);
-    doc.line(offX + r.x, offY + r.y + r.h/2, offX + r.x + r.w, offY + r.y + r.h/2);
+    doc.setDrawColor(196,168,130); doc.setLineWidth(Z(3));
+    doc.line(X(r.x), Y(r.y + r.h/2), X(r.x + r.w), Y(r.y + r.h/2));
   });
 
   // 3. Tarjetas
@@ -1215,23 +1228,23 @@ function exportPdf() {
     if (!p) return;
     const g = p.gender || "O";
     const cr = rel(card);
-    const x = offX + cr.x, y = offY + cr.y;
+    const x = X(cr.x), y = Y(cr.y), w = Z(cr.w), h = Z(cr.h);
 
     // Fondo blanco + franja superior de color
     doc.setFillColor(255,255,255);
-    doc.roundedRect(x, y, cr.w, cr.h, 8, 8, "F");
+    doc.roundedRect(x, y, w, h, Z(8), Z(8), "F");
     doc.setFillColor(...(topColor[g] || topColor.O));
-    doc.roundedRect(x, y, cr.w, 5, 3, 3, "F");
-    doc.rect(x, y + 3, cr.w, 2, "F");
+    doc.roundedRect(x, y, w, Z(5), Z(3), Z(3), "F");
+    doc.rect(x, y + Z(3), w, Z(2), "F");
 
     // Avatar circular con iniciales
     const avEl = card.querySelector(".card-avatar");
     if (avEl) {
       const ar = rel(avEl);
-      const acx = offX + ar.x + ar.w/2, acy = offY + ar.y + ar.h/2, rad = ar.w/2;
+      const acx = X(ar.x + ar.w/2), acy = Y(ar.y + ar.h/2), rad = Z(ar.w/2);
       doc.setFillColor(...(avatarColor[g] || avatarColor.O));
       doc.circle(acx, acy, rad, "F");
-      doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(rad * 0.85);
+      doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(F(ar.w * 0.42));
       doc.text(initials(p.name), acx, acy + rad * 0.35, { align:"center" });
     }
 
@@ -1239,18 +1252,18 @@ function exportPdf() {
     const nameEl = card.querySelector(".card-name");
     if (nameEl) {
       const nr = rel(nameEl);
-      doc.setTextColor(34,34,34); doc.setFont("helvetica","bold"); doc.setFontSize(11);
-      const lines = doc.splitTextToSize(p.name, cr.w - 12);
-      let ly = offY + nr.y + 10;
-      lines.forEach(line => { doc.text(line, offX + cr.x + cr.w/2, ly, { align:"center" }); ly += 12; });
+      doc.setTextColor(34,34,34); doc.setFont("helvetica","bold"); doc.setFontSize(F(11));
+      const lines = doc.splitTextToSize(p.name, cr.w - 12).map(l => l);
+      let ly = Y(nr.y + 10);
+      lines.forEach(line => { doc.text(line, X(cr.x + cr.w/2), ly, { align:"center" }); ly += Z(12); });
     }
 
     // Nacimiento
     const datesEl = card.querySelector(".card-dates");
     if (datesEl && datesEl.textContent.trim()) {
       const dr = rel(datesEl);
-      doc.setTextColor(...gray); doc.setFont("helvetica","italic"); doc.setFontSize(9);
-      doc.text(datesEl.textContent.trim(), offX + cr.x + cr.w/2, offY + dr.y + 8, { align:"center" });
+      doc.setTextColor(...gray); doc.setFont("helvetica","italic"); doc.setFontSize(F(9));
+      doc.text(datesEl.textContent.trim(), X(cr.x + cr.w/2), Y(dr.y + 8), { align:"center" });
     }
 
     // Banda de fallecimiento con cruz
@@ -1258,11 +1271,11 @@ function exportPdf() {
     if (decEl) {
       const dr = rel(decEl);
       doc.setFillColor(...creamDk);
-      doc.rect(offX + dr.x, offY + dr.y, dr.w, dr.h, "F");
-      doc.setDrawColor(196,168,130); doc.setLineWidth(1);
-      doc.line(offX + dr.x, offY + dr.y, offX + dr.x + dr.w, offY + dr.y);
-      doc.setTextColor(107,93,79); doc.setFont("helvetica","normal"); doc.setFontSize(9);
-      doc.text(decEl.textContent.trim(), offX + dr.x + dr.w/2, offY + dr.y + dr.h/2 + 3, { align:"center" });
+      doc.rect(X(dr.x), Y(dr.y), Z(dr.w), Z(dr.h), "F");
+      doc.setDrawColor(196,168,130); doc.setLineWidth(Z(1));
+      doc.line(X(dr.x), Y(dr.y), X(dr.x + dr.w), Y(dr.y));
+      doc.setTextColor(107,93,79); doc.setFont("helvetica","normal"); doc.setFontSize(F(9));
+      doc.text(decEl.textContent.trim(), X(dr.x + dr.w/2), Y(dr.y + dr.h/2 + 3), { align:"center" });
     }
   });
 
