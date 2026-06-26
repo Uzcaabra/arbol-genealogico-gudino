@@ -104,6 +104,15 @@
     }
     #statusDot.connected { background: #27ae60; }
     #statusDot.error     { background: var(--red); }
+    #personCount {
+      margin-left: auto;
+      font-weight: bold;
+      color: var(--brown);
+      background: var(--cream-dk);
+      border: 1px solid var(--brown-lt);
+      border-radius: 12px;
+      padding: 2px 12px;
+    }
 
     /* ── Tree canvas ── */
     #treeContainer {
@@ -396,6 +405,7 @@
 <div id="statusBar">
   <div id="statusDot"></div>
   <span id="statusText">Conectando a Firebase…</span>
+  <span id="personCount"></span>
 </div>
 
 <!-- Aviso cuando Firebase no está configurado -->
@@ -857,7 +867,12 @@ function renderTree() {
   nodesEl.innerHTML = "";
   svgEl.innerHTML   = "";
 
-  if (Object.keys(people).length === 0) {
+  // Actualizar contador de personas
+  const total = Object.keys(people).length;
+  const countEl = document.getElementById("personCount");
+  if (countEl) countEl.textContent = total === 1 ? "1 persona" : `${total} personas`;
+
+  if (total === 0) {
     empty.style.display = "block";
     return;
   }
