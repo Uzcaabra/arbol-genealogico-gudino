@@ -395,8 +395,8 @@
   </h1>
   <div class="header-btns">
     <button class="btn-primary" id="btnAdd">+ Agregar familiar</button>
-    <button class="btn-secondary" id="btnExportPdf">📄 PDF (1 hoja)</button>
-    <button class="btn-secondary" id="btnExportPoster">🗺️ Póster</button>
+    <button class="btn-secondary" id="btnExportPdf">📄 PDF (pantalla)</button>
+    <button class="btn-secondary" id="btnExportPoster">🖨️ Póster (imprimir)</button>
     <button class="btn-secondary" id="btnExportJson">💾 JSON</button>
     <button class="btn-secondary" id="btnImportJson">📂 Importar</button>
     <input type="file" id="fileImport" accept=".json" style="display:none" />
@@ -1231,7 +1231,7 @@ function drawTreeBody(doc, ctx) {
     if (nameEl) {
       const nr = rel(nameEl);
       doc.setTextColor(34,34,34); doc.setFont("helvetica","bold"); doc.setFontSize(F(11));
-      const lines = doc.splitTextToSize(p.name, cr.w - 12);
+      const lines = doc.splitTextToSize(p.name, Z(cr.w - 12));
       let ly = Y(nr.y + 10);
       lines.forEach(line => { doc.text(line, X(cr.x + cr.w/2), ly, { align:"center" }); ly += Z(12); });
     }
@@ -1258,7 +1258,8 @@ function drawTreeBody(doc, ctx) {
   });
 }
 
-// ── PDF de UNA HOJA: el árbol entero escalado para caber en A4 sin cortarse ──
+// ── PDF de UNA PÁGINA, a tamaño LEGIBLE (una sola hoja grande). Ideal para
+//    ver/compartir en pantalla con zoom, o imprimir en imprenta a gran formato.
 function exportPdf() {
   const { jsPDF } = window.jspdf;
   if (Object.keys(people).length === 0) { alert("El árbol está vacío."); return; }
@@ -1271,30 +1272,34 @@ function exportPdf() {
 
   const contentW = wrap.scrollWidth, contentH = wrap.scrollHeight;
 
-  const pageW = 297, pageH = 210;          // A4 apaisado
-  const bottomM = 8, headerH = 22;
-  const availW = 263;                       // seguro para A4 y Carta (Letter)
-  const availH = pageH - headerH - bottomM;
-  const S = Math.min(availW / contentW, availH / contentH);
-  const drawW = contentW * S, drawH = contentH * S;
-  const offX = (pageW - drawW) / 2;
-  const offY = headerH + (availH - drawH) / 2;
+  // Escala fija para que las tarjetas sean legibles; la página crece según
+  // el contenido (queda como un banner de una sola página).
+  const margin = 14, headerH = 28;          // mm
+  let S = 0.22;                              // mm por px (tarjetas legibles)
+  // jsPDF no admite páginas mayores a ~5080 mm: reducir la escala si hiciera falta
+  const MAXMM = 5000;
+  const longest = Math.max(contentW * S + margin * 2, contentH * S + headerH + margin * 2);
+  if (longest > MAXMM) S *= MAXMM / longest;
+
+  const pageW = contentW * S + margin * 2;
+  const pageH = contentH * S + headerH + margin * 2;
+  const offX = margin, offY = headerH + margin;
 
   const X = px => offX + px * S;
   const Y = px => offY + px * S;
   const Z = px => px * S;
-  const F = px => Math.max(1.4, px * S / 0.352778);
+  const F = px => Math.max(4, px * S / 0.352778);
 
-  const doc = new jsPDF({ unit: "mm", format: "a4", orientation: "landscape" });
+  const doc = new jsPDF({ unit: "mm", format: [pageW, pageH], orientation: pageW >= pageH ? "landscape" : "portrait" });
   const cream = [244,240,230], creamDk = [237,230,214], brown = [139,111,71], gray = [127,140,141];
 
   doc.setFillColor(...cream);  doc.rect(0, 0, pageW, pageH, "F");
   doc.setFillColor(...creamDk); doc.rect(0, 0, pageW, headerH, "F");
-  doc.setDrawColor(196,168,130); doc.setLineWidth(0.6); doc.line(0, headerH, pageW, headerH);
-  doc.setTextColor(...brown); doc.setFont("helvetica","bold"); doc.setFontSize(16);
-  doc.text(FAMILY_NAME, pageW/2, 11, { align:"center" });
-  doc.setFont("helvetica","italic"); doc.setFontSize(9); doc.setTextColor(...gray);
-  doc.text(FAMILY_ORIGIN, pageW/2, 18, { align:"center" });
+  doc.setDrawColor(196,168,130); doc.setLineWidth(0.8); doc.line(0, headerH, pageW, headerH);
+  doc.setTextColor(...brown); doc.setFont("helvetica","bold"); doc.setFontSize(Math.max(20, F(40)));
+  doc.text(FAMILY_NAME, pageW/2, headerH * 0.45, { align:"center" });
+  doc.setFont("helvetica","italic"); doc.setFontSize(Math.max(12, F(20))); doc.setTextColor(...gray);
+  doc.text(FAMILY_ORIGIN, pageW/2, headerH * 0.72, { align:"center" });
 
   drawTreeBody(doc, { X, Y, Z, F, rel, svg });
   doc.save(`arbol-gudino-${new Date().toISOString().slice(0,10)}.pdf`);
