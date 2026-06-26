@@ -1163,41 +1163,43 @@ function exportPdf() {
     };
   }
 
-  const HEADER = 80, MARGIN = 40;      // en px (espacio del DOM)
   const contentW = wrap.scrollWidth;
   const contentH = wrap.scrollHeight;
-  const totalW = contentW + MARGIN * 2;
-  const totalH = contentH + HEADER + MARGIN * 2;
 
-  // Ajustar TODO a una sola página A3 apaisada (420×297 mm) preservando la
-  // proporción, para que se imprima completo en una hoja sin cortes.
-  const A3W = 420, A3H = 297;
-  const aspect = totalW / totalH;
-  let pageW, pageH;
-  if (aspect >= A3W / A3H) { pageW = A3W; pageH = A3W / aspect; }
-  else                     { pageH = A3H; pageW = A3H * aspect; }
-  const S = pageW / totalW;            // mm por px
+  // Página A4 apaisada ESTÁNDAR (297×210 mm). El árbol entero se escala para
+  // caber dentro de la hoja, así nunca se corta al imprimir, sin importar la
+  // configuración de la impresora.
+  const pageW = 297, pageH = 210;
+  const bottomM = 8, headerH = 22;   // mm
+  // Ancho útil = 263 mm: cabe tanto en A4 como en Carta (Letter) apaisados,
+  // así no se corta en ninguno de los dos tamaños de papel.
+  const availW = 263;
+  const availH = pageH - headerH - bottomM;
+  const S = Math.min(availW / contentW, availH / contentH);  // mm por px
+  const drawW = contentW * S, drawH = contentH * S;
+  const offX = (pageW - drawW) / 2;
+  const offY = headerH + (availH - drawH) / 2;
 
   // Mapeo px (espacio del árbol) → mm (página)
-  const X = px => (MARGIN + px) * S;            // x con margen izquierdo
-  const Y = px => (HEADER + MARGIN + px) * S;    // y bajo el encabezado
-  const Z = px => px * S;                        // tamaños/radios/grosores
-  const F = px => Math.max(2, px * S / 0.352778);// px → pt (fuente)
+  const X = px => offX + px * S;
+  const Y = px => offY + px * S;
+  const Z = px => px * S;
+  const F = px => Math.max(1.4, px * S / 0.352778);  // px → pt (fuente)
 
-  const doc = new jsPDF({ unit: "mm", format: [pageW, pageH], orientation: pageW >= pageH ? "landscape" : "portrait" });
+  const doc = new jsPDF({ unit: "mm", format: "a4", orientation: "landscape" });
 
   const cream = [244,240,230], creamDk = [237,230,214], brown = [139,111,71], gray = [127,140,141];
   const topColor   = { F: [192,57,43],  M: [41,128,185], O: [127,140,141] };
   const avatarColor= { F: [241,148,138], M: [133,193,233], O: [189,195,199] };
 
-  // Fondo crema + banda de encabezado
+  // Fondo crema + banda de encabezado (con fuente fija para que sea legible)
   doc.setFillColor(...cream);  doc.rect(0, 0, pageW, pageH, "F");
-  doc.setFillColor(...creamDk); doc.rect(0, 0, pageW, HEADER * S, "F");
-  doc.setDrawColor(196,168,130); doc.setLineWidth(Z(2)); doc.line(0, HEADER * S, pageW, HEADER * S);
-  doc.setTextColor(...brown); doc.setFont("helvetica","bold"); doc.setFontSize(Math.max(14, F(30)));
-  doc.text(FAMILY_NAME, pageW/2, 40 * S, { align:"center" });
-  doc.setFont("helvetica","italic"); doc.setFontSize(Math.max(8, F(14))); doc.setTextColor(...gray);
-  doc.text(FAMILY_ORIGIN, pageW/2, 62 * S, { align:"center" });
+  doc.setFillColor(...creamDk); doc.rect(0, 0, pageW, headerH, "F");
+  doc.setDrawColor(196,168,130); doc.setLineWidth(0.6); doc.line(0, headerH, pageW, headerH);
+  doc.setTextColor(...brown); doc.setFont("helvetica","bold"); doc.setFontSize(16);
+  doc.text(FAMILY_NAME, pageW/2, 11, { align:"center" });
+  doc.setFont("helvetica","italic"); doc.setFontSize(9); doc.setTextColor(...gray);
+  doc.text(FAMILY_ORIGIN, pageW/2, 18, { align:"center" });
 
   // 1. Conectores: leer cada <path> del SVG y replicarlo
   svg.querySelectorAll("path").forEach(path => {
