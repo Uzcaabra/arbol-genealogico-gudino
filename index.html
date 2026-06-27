@@ -884,8 +884,12 @@ function renderTree() {
   const countEl = document.getElementById("personCount");
   if (countEl) countEl.textContent = total === 1 ? "1 persona" : `${total} personas`;
 
+  // Copia de seguridad automática en este navegador (red de protección)
+  if (total > 0) autoBackup();
+
   if (total === 0) {
     empty.style.display = "block";
+    showRestoreOption();
     return;
   }
   empty.style.display = "none";
@@ -1382,6 +1386,51 @@ function exportPdfPoster() {
   }
 
   doc.save(`arbol-gudino-poster-${new Date().toISOString().slice(0,10)}.pdf`);
+}
+
+// ════════════════════════════════════════════════════════
+//  RESPALDO AUTOMÁTICO (red de protección en este navegador)
+// ════════════════════════════════════════════════════════
+const BACKUP_KEY = "arbol_gudino_backup";
+
+function autoBackup() {
+  try {
+    const snapshot = { ts: Date.now(), count: Object.keys(people).length, people };
+    localStorage.setItem(BACKUP_KEY, JSON.stringify(snapshot));
+  } catch (e) { /* localStorage lleno o no disponible: ignorar */ }
+}
+
+function getBackup() {
+  try {
+    const raw = localStorage.getItem(BACKUP_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) { return null; }
+}
+
+// Si el árbol está vacío pero hay un respaldo local, ofrecer restaurarlo
+function showRestoreOption() {
+  const empty = document.getElementById("emptyState");
+  const old = document.getElementById("restoreBox");
+  if (old) old.remove();
+  const bk = getBackup();
+  if (!bk || !bk.count) return;
+
+  const box = document.createElement("div");
+  box.id = "restoreBox";
+  box.style.cssText = "margin-top:18px;font-size:0.85rem;color:#6b5d4f;";
+  const fecha = new Date(bk.ts).toLocaleString("es-VE");
+  box.innerHTML = `Hay un respaldo local con <strong>${bk.count} personas</strong> (${fecha}).`;
+  const btn = document.createElement("button");
+  btn.className = "btn-secondary";
+  btn.style.marginLeft = "10px";
+  btn.textContent = "↩️ Restaurar respaldo";
+  btn.addEventListener("click", () => {
+    if (!confirm(`¿Restaurar ${bk.count} personas desde el respaldo local del ${fecha}?`)) return;
+    if (dbRef) dbRef.set(bk.people);
+    else { people = bk.people; renderTree(); }
+  });
+  box.appendChild(btn);
+  empty.appendChild(box);
 }
 
 // ════════════════════════════════════════════════════════
