@@ -150,6 +150,17 @@
       padding-left: 12px;
       text-align: center;
     }
+    .gen-count {
+      text-transform: none;
+      letter-spacing: 0;
+      color: var(--brown);
+      background: var(--cream-dk);
+      border: 1px solid var(--brown-lt);
+      border-radius: 10px;
+      padding: 1px 8px;
+      margin-left: 6px;
+      font-weight: bold;
+    }
     .gen-row {
       display: flex;
       flex-wrap: nowrap;
@@ -902,7 +913,9 @@ function renderTree() {
   Object.keys(byGen).sort((a,b)=>a-b).forEach(g => {
     const label = document.createElement("div");
     label.className = "gen-label";
-    label.textContent = genLabels[+g] || ("Generación " + (+g + 1));
+    const n = byGen[g].length;
+    const nombre = genLabels[+g] || ("Generación " + (+g + 1));
+    label.innerHTML = `${nombre} <span class="gen-count">${n === 1 ? "1 persona" : n + " personas"}</span>`;
     nodesEl.appendChild(label);
 
     const row = document.createElement("div");
