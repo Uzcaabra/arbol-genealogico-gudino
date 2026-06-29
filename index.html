@@ -85,6 +85,19 @@
     .btn-icon      { background: transparent; padding: 4px 8px; color: var(--brown); font-size: 1rem; }
     button:hover   { opacity: .85; }
 
+    .tree-select {
+      font-family: var(--font);
+      font-size: 0.85rem;
+      color: var(--brown);
+      background: var(--white);
+      border: 1px solid var(--brown-lt);
+      border-radius: 6px;
+      padding: 8px 10px;
+      cursor: pointer;
+      max-width: 220px;
+    }
+    .tree-select:focus { outline: none; border-color: var(--brown); }
+
     /* ── Status bar ── */
     #statusBar {
       background: #fff8e7;
@@ -393,9 +406,10 @@
     appId:             "1:38204965368:web:81c107ed4eb56e0ec4d60d"
   };
 
-  // Nombre de la familia — aparece en el encabezado y en el PDF
-  const FAMILY_NAME    = "Familia Gudiño";
-  const FAMILY_ORIGIN  = "Santa Lucía del Tuy · Miranda · Venezuela";
+  // Nombre del árbol por defecto (Gudiño). Para otros árboles se carga desde
+  // Firebase. Son 'let' porque cambian según el árbol seleccionado.
+  let FAMILY_NAME    = "Familia Gudiño";
+  let FAMILY_ORIGIN  = "Santa Lucía del Tuy · Miranda · Venezuela";
 </script>
 <!-- ══ FIN DE CONFIG ══════════════════════ -->
 
@@ -405,6 +419,7 @@
     <span id="headerOrigin"></span>
   </h1>
   <div class="header-btns">
+    <select id="treeSelect" class="tree-select" title="Cambiar de árbol"></select>
     <button class="btn-primary" id="btnAdd">+ Agregar familiar</button>
     <button class="btn-secondary" id="btnExportPdf">📄 PDF (pantalla)</button>
     <button class="btn-secondary" id="btnExportPoster">🖨️ Póster (imprimir)</button>
@@ -515,6 +530,27 @@ let people = {};        // { id: personObj }
 let dbRef  = null;      // Firebase database reference
 let firebaseOk = false;
 
+// ── Multi-árbol ──
+// El árbol se identifica en el hash de la URL (#id). El árbol por defecto
+// "gudino" usa la ruta histórica raíz `people`; los demás van bajo `trees/<id>`.
+const DEFAULT_TREE = "gudino";
+let currentTree = (location.hash || "").replace("#", "").trim() || DEFAULT_TREE;
+
+function peoplePath() {
+  return currentTree === DEFAULT_TREE ? "people" : `trees/${currentTree}/people`;
+}
+function metaPath() {
+  return currentTree === DEFAULT_TREE ? null : `trees/${currentTree}/meta`;
+}
+function slugify(s) {
+  return s.toLowerCase()
+          .normalize("NFD").replace(/[̀-ͯ]/g, "")
+          .replace(/[^a-z0-9]/g, "-")
+          .replace(/-+/g, "-")
+          .replace(/^-|-$/g, "")
+          .slice(0, 30) || ("arbol-" + Date.now().toString(36));
+}
+
 // ════════════════════════════════════════════════════════
 //  DATOS INICIALES — Familia Gudiño
 // ════════════════════════════════════════════════════════
@@ -554,23 +590,35 @@ function initFirebase() {
   try {
     firebase.initializeApp(FIREBASE_CONFIG);
     const db = firebase.database();
-    dbRef = db.ref("people");
+    firebaseOk = true;
+    dbRef = db.ref(peoplePath());
 
     db.ref(".info/connected").on("value", snap => {
-      if (snap.val()) {
-        setStatus("Conectado en tiempo real ✓", "connected");
-      } else {
-        setStatus("Reconectando…", "");
-      }
+      setStatus(snap.val() ? "Conectado en tiempo real ✓" : "Reconectando…", snap.val() ? "connected" : "");
     });
+
+    // Cargar el nombre/origen del árbol (los que no son el por defecto)
+    if (metaPath()) {
+      db.ref(metaPath()).on("value", s => {
+        const m = s.val();
+        if (m) { FAMILY_NAME = m.name || FAMILY_NAME; FAMILY_ORIGIN = m.origin || ""; updateHeader(); }
+      });
+    }
+
+    // Registrar este árbol y poblar el selector de árboles
+    ensureTreeRegistered(db);
+    loadTreeList(db);
 
     dbRef.on("value", snap => {
       const data = snap.val();
       if (data === null) {
-        // Base vacía → persistir los datos de semilla en Firebase
-        seedData();
+        if (currentTree === DEFAULT_TREE) {
+          seedData();              // sembrar los datos iniciales de los Gudiño
+        } else {
+          people = {};             // árbol nuevo: empieza vacío
+          renderTree();
+        }
       } else {
-        // Firebase tiene datos → usarlos (reemplaza la vista local)
         people = data;
         renderTree();
       }
@@ -580,21 +628,75 @@ function initFirebase() {
   }
 }
 
+// Registra el árbol actual en el índice si aún no existe (escritura aditiva)
+function ensureTreeRegistered(db) {
+  const ref = db.ref(`treesIndex/${currentTree}`);
+  ref.once("value", s => {
+    if (!s.val()) ref.set({ name: FAMILY_NAME, origin: FAMILY_ORIGIN });
+  });
+}
+
+// Llena el selector con todos los árboles existentes + opción de crear uno
+function loadTreeList(db) {
+  db.ref("treesIndex").on("value", s => {
+    const trees = s.val() || {};
+    const sel = document.getElementById("treeSelect");
+    sel.innerHTML = "";
+    Object.entries(trees)
+      .sort((a, b) => (a[1].name || "").localeCompare(b[1].name || ""))
+      .forEach(([id, meta]) => {
+        const o = document.createElement("option");
+        o.value = id;
+        o.textContent = "🌳 " + (meta.name || id);
+        if (id === currentTree) o.selected = true;
+        sel.appendChild(o);
+      });
+    const nuevo = document.createElement("option");
+    nuevo.value = "__new__";
+    nuevo.textContent = "➕ Crear nuevo árbol…";
+    sel.appendChild(nuevo);
+  });
+}
+
+// Crea un árbol nuevo (vacío) y cambia a él
+function createNewTree() {
+  const name = (prompt("Nombre del nuevo árbol (ej. Familia Pérez):") || "").trim();
+  if (!name) return;
+  const origin = (prompt("Lugar de origen (opcional):") || "").trim();
+  let id = slugify(name);
+  if (id === DEFAULT_TREE) id += "-2";
+  if (firebaseOk) {
+    const db = firebase.database();
+    db.ref(`treesIndex/${id}`).set({ name, origin });
+    db.ref(`trees/${id}/meta`).set({ name, origin });
+  }
+  location.hash = id;
+  location.reload();
+}
+
+function updateHeader() {
+  document.getElementById("headerFamily").textContent = FAMILY_NAME;
+  document.getElementById("headerOrigin").textContent = FAMILY_ORIGIN;
+}
+
 function loadLocalMode() {
   people = {};
-  SEED_DATA.forEach(p => {
-    const id = p._key;
-    const obj = { ...p };
-    delete obj._key;
-    // Resolver referencias por _key
-    ["father","mother","spouse"].forEach(field => {
-      if (obj[field]) {
-        const ref = SEED_DATA.find(x => x._key === obj[field]);
-        obj[field] = ref ? ref._key : null;
-      }
+  // Los datos de semilla solo aplican al árbol por defecto (Gudiño)
+  if (currentTree === DEFAULT_TREE) {
+    SEED_DATA.forEach(p => {
+      const id = p._key;
+      const obj = { ...p };
+      delete obj._key;
+      // Resolver referencias por _key
+      ["father","mother","spouse"].forEach(field => {
+        if (obj[field]) {
+          const ref = SEED_DATA.find(x => x._key === obj[field]);
+          obj[field] = ref ? ref._key : null;
+        }
+      });
+      people[id] = obj;
     });
-    people[id] = obj;
-  });
+  }
   renderTree();
 }
 
@@ -1391,18 +1493,18 @@ function exportPdfPoster() {
 // ════════════════════════════════════════════════════════
 //  RESPALDO AUTOMÁTICO (red de protección en este navegador)
 // ════════════════════════════════════════════════════════
-const BACKUP_KEY = "arbol_gudino_backup";
+function backupKey() { return "arbol_backup_" + currentTree; }
 
 function autoBackup() {
   try {
     const snapshot = { ts: Date.now(), count: Object.keys(people).length, people };
-    localStorage.setItem(BACKUP_KEY, JSON.stringify(snapshot));
+    localStorage.setItem(backupKey(), JSON.stringify(snapshot));
   } catch (e) { /* localStorage lleno o no disponible: ignorar */ }
 }
 
 function getBackup() {
   try {
-    const raw = localStorage.getItem(BACKUP_KEY);
+    const raw = localStorage.getItem(backupKey());
     return raw ? JSON.parse(raw) : null;
   } catch (e) { return null; }
 }
@@ -1484,8 +1586,22 @@ function setStatus(text, state) {
 // ════════════════════════════════════════════════════════
 //  ARRANQUE
 // ════════════════════════════════════════════════════════
-document.getElementById("headerFamily").textContent = FAMILY_NAME;
-document.getElementById("headerOrigin").textContent = FAMILY_ORIGIN;
+updateHeader();
+
+// Selector de árbol: cambiar o crear uno nuevo
+document.getElementById("treeSelect").addEventListener("change", e => {
+  const v = e.target.value;
+  if (v === "__new__") {
+    createNewTree();
+    e.target.value = currentTree;   // por si se cancela
+  } else if (v && v !== currentTree) {
+    location.hash = v;
+    location.reload();
+  }
+});
+
+// Si cambia el hash (link directo a otro árbol), recargar
+window.addEventListener("hashchange", () => location.reload());
 
 window.addEventListener("resize", () => {
   if (Object.keys(people).length) {
