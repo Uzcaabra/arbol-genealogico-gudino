@@ -1424,10 +1424,24 @@ function exportPdf() {
   doc.save(`arbol-gudino-${new Date().toISOString().slice(0,10)}.pdf`);
 }
 
-// ── PDF PÓSTER: el árbol a tamaño legible repartido en varias hojas A4 ──
+// ── PDF PÓSTER: el árbol a tamaño legible repartido en varias hojas ──
 function exportPdfPoster() {
   const { jsPDF } = window.jspdf;
   if (Object.keys(people).length === 0) { alert("El árbol está vacío."); return; }
+
+  // Elegir tamaño de papel (apaisado)
+  const PAPERS = {
+    "1": { w: 297, h: 210, margin: 10, label: "A4 (impresora de casa)" },
+    "2": { w: 960, h: 660, margin: 20, label: "Pliego Bond 66 × 96 cm" },
+  };
+  const choice = prompt(
+    "¿En qué papel imprimirás el póster?\n\n" +
+    "1 = A4 (impresora de casa, varias hojas)\n" +
+    "2 = Pliego Bond 66 × 96 cm (imprenta / gran formato)\n\n" +
+    "Escribe 1 o 2:", "2");
+  if (choice === null) return;
+  const paper = PAPERS[choice.trim()] || PAPERS["2"];
+  const pageW = paper.w, pageH = paper.h, margin = paper.margin;
 
   const wrap = document.getElementById("treeWrapper");
   const svg  = document.getElementById("treeSvg");
@@ -1438,7 +1452,6 @@ function exportPdfPoster() {
   const contentW = wrap.scrollWidth, contentH = wrap.scrollHeight;
 
   const scale = 0.20;                       // mm por px (tarjetas legibles)
-  const pageW = 297, pageH = 210, margin = 10;
   const tileW = pageW - margin * 2;          // área de árbol por hoja
   const tileH = pageH - margin * 2;
   const posterW = contentW * scale, posterH = contentH * scale;
@@ -1446,15 +1459,17 @@ function exportPdfPoster() {
   const rows = Math.max(1, Math.ceil(posterH / tileH));
   const totalPages = cols * rows;
 
-  if (!confirm(`El póster se repartirá en ${totalPages} hojas A4 (${cols} × ${rows}) para imprimir y pegar.\n\n¿Generar el PDF?`)) return;
+  const hojas = totalPages === 1 ? "1 hoja" : `${totalPages} hojas (${cols} × ${rows})`;
+  if (!confirm(`El póster usará ${hojas} de ${paper.label} para imprimir y pegar.\n\n¿Generar el PDF?`)) return;
 
-  const doc = new jsPDF({ unit: "mm", format: "a4", orientation: "landscape" });
+  const fmt = [pageW, pageH];
+  const doc = new jsPDF({ unit: "mm", format: fmt, orientation: "landscape" });
   const cream = [244,240,230], gray = [127,140,141];
 
   let pageNum = 0;
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
-      if (pageNum > 0) doc.addPage("a4", "landscape");
+      if (pageNum > 0) doc.addPage(fmt, "landscape");
       pageNum++;
 
       // Mapeo: punto del árbol (px) → mm en esta hoja. La porción fuera de la
@@ -1482,12 +1497,15 @@ function exportPdfPoster() {
       doc.setLineDashPattern([2,2], 0);
       doc.rect(margin, margin, tileW, tileH);
       doc.setLineDashPattern([], 0);
-      doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.setTextColor(...gray);
-      doc.text(`${FAMILY_NAME} · Póster — hoja ${pageNum}/${totalPages}  (fila ${r+1}, columna ${c+1})`, margin + 1, pageH - 3);
+      doc.setFont("helvetica","normal"); doc.setFontSize(9); doc.setTextColor(...gray);
+      const etiqueta = totalPages === 1
+        ? `${FAMILY_NAME} · Póster (${paper.label})`
+        : `${FAMILY_NAME} · Póster ${paper.label} — hoja ${pageNum}/${totalPages}  (fila ${r+1}, columna ${c+1})`;
+      doc.text(etiqueta, margin + 1, pageH - 4);
     }
   }
 
-  doc.save(`arbol-gudino-poster-${new Date().toISOString().slice(0,10)}.pdf`);
+  doc.save(`arbol-${currentTree}-poster-${new Date().toISOString().slice(0,10)}.pdf`);
 }
 
 // ════════════════════════════════════════════════════════
