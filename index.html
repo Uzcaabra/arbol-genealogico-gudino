@@ -127,6 +127,72 @@
       padding: 2px 12px;
     }
 
+    /* ── Barra de herramientas (buscar + zoom) ── */
+    #toolBar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 24px;
+      background: var(--cream);
+      border-bottom: 1px solid var(--brown-lt);
+      flex-wrap: wrap;
+    }
+    #searchBox {
+      flex: 1;
+      min-width: 150px;
+      max-width: 340px;
+      padding: 8px 12px;
+      border: 1px solid var(--brown-lt);
+      border-radius: 20px;
+      font-family: var(--font);
+      font-size: 0.9rem;
+      background: var(--white);
+      color: #333;
+    }
+    #searchBox:focus { outline: none; border-color: var(--brown); }
+    #searchInfo { font-size: 0.78rem; color: var(--gray); }
+    .zoom-controls {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin-left: auto;
+    }
+    .zoom-controls button {
+      width: 38px;
+      height: 38px;
+      border-radius: 8px;
+      background: var(--cream-dk);
+      border: 1px solid var(--brown-lt);
+      color: var(--brown);
+      font-size: 1.2rem;
+      font-weight: bold;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+    }
+    #zoomLevel {
+      font-size: 0.78rem;
+      color: var(--gray);
+      min-width: 40px;
+      text-align: center;
+    }
+
+    /* Tarjeta resaltada por la búsqueda */
+    .person-card.search-hit {
+      outline: 4px solid #f1c40f;
+      outline-offset: 2px;
+      box-shadow: 0 0 0 4px rgba(241,196,15,0.4), 0 6px 16px var(--shadow);
+      animation: pulseHit 1.2s ease-in-out 2;
+    }
+    @keyframes pulseHit {
+      0%,100% { outline-color: #f1c40f; }
+      50%     { outline-color: #e67e22; }
+    }
+
+    /* Contenedor que reserva el espacio del árbol al hacer zoom */
+    #treeWrapper { transform-origin: top left; }
+
     /* ── Tree canvas ── */
     #treeContainer {
       overflow: auto;
@@ -382,10 +448,21 @@
 
     /* ── Responsive ── */
     @media (max-width: 600px) {
-      header h1 { font-size: 1.2rem; }
-      .header-btns button { padding: 6px 10px; font-size: 0.78rem; }
-      #treeContainer { padding: 16px; }
-      .person-card { width: 110px; }
+      header { padding: 12px 14px; gap: 8px; }
+      header h1 { font-size: 1.1rem; width: 100%; }
+      .header-btns { width: 100%; gap: 6px; }
+      .header-btns button, .tree-select {
+        padding: 8px 10px;
+        font-size: 0.8rem;
+        flex: 1 1 auto;
+      }
+      .tree-select { flex-basis: 100%; }
+      #btnAdd { flex-basis: 100%; }
+      #statusBar { padding: 6px 14px; }
+      #toolBar { padding: 8px 14px; }
+      #treeContainer { padding: 14px; }
+      .zoom-controls { margin-left: 0; }
+      .zoom-controls button { width: 44px; height: 44px; }  /* táctil cómodo */
     }
   </style>
 </head>
@@ -433,6 +510,18 @@
   <div id="statusDot"></div>
   <span id="statusText">Conectando a Firebase…</span>
   <span id="personCount"></span>
+</div>
+
+<!-- Barra de herramientas: buscar persona + zoom (útil sobre todo en el celular) -->
+<div id="toolBar">
+  <input type="search" id="searchBox" placeholder="🔍 Buscar familiar…" autocomplete="off" />
+  <span id="searchInfo"></span>
+  <div class="zoom-controls">
+    <button id="btnZoomOut" title="Alejar">−</button>
+    <button id="btnZoomFit" title="Ver todo">⤢</button>
+    <button id="btnZoomIn" title="Acercar">+</button>
+    <span id="zoomLevel">100%</span>
+  </div>
 </div>
 
 <!-- Aviso cuando Firebase no está configurado -->
@@ -529,6 +618,7 @@
 let people = {};        // { id: personObj }
 let dbRef  = null;      // Firebase database reference
 let firebaseOk = false;
+let treeZoom = 1;       // factor de escala del árbol (zoom)
 
 // ── Multi-árbol ──
 // El árbol se identifica en el hash de la URL (#id). El árbol por defecto
@@ -1075,8 +1165,11 @@ function renderTree() {
     nodesEl.appendChild(row);
   });
 
-  // Dibujar líneas SVG después de que el DOM se renderice
-  requestAnimationFrame(() => drawConnectors(gen));
+  // Dibujar líneas SVG después de que el DOM se renderice, y reaplicar el zoom
+  requestAnimationFrame(() => {
+    drawConnectors(gen);
+    if (treeZoom !== 1) applyZoom(treeZoom);
+  });
 }
 
 function makeCard(id) {
@@ -1136,19 +1229,20 @@ function drawConnectors(gen) {
   svg.style.width  = w + "px";
   svg.style.height = h + "px";
 
+  // Coordenadas en el espacio SIN escalar del árbol (se divide por el zoom,
+  // porque getBoundingClientRect devuelve valores ya escalados por transform)
   function cardRect(id) {
     const el = document.querySelector(`.person-card[data-id="${id}"]`);
     if (!el) return null;
     const r = el.getBoundingClientRect();
+    const z = treeZoom || 1;
+    const left = (r.left - wRect.left) / z + wrap.scrollLeft;
+    const top  = (r.top  - wRect.top)  / z + wrap.scrollTop;
+    const wd = r.width / z, ht = r.height / z;
     return {
-      left:   r.left   - wRect.left + wrap.scrollLeft,
-      top:    r.top    - wRect.top  + wrap.scrollTop,
-      right:  r.right  - wRect.left + wrap.scrollLeft,
-      bottom: r.bottom - wRect.top  + wrap.scrollTop,
-      cx:     r.left   - wRect.left + wrap.scrollLeft + r.width / 2,
-      cy:     r.top    - wRect.top  + wrap.scrollTop  + r.height / 2,
-      width:  r.width,
-      height: r.height,
+      left, top, right: left + wd, bottom: top + ht,
+      cx: left + wd / 2, cy: top + ht / 2,
+      width: wd, height: ht,
     };
   }
 
@@ -1626,6 +1720,63 @@ window.addEventListener("resize", () => {
     const gen = calcGenerations();
     requestAnimationFrame(() => drawConnectors(gen));
   }
+});
+
+// ════════════════════════════════════════════════════════
+//  ZOOM DEL ÁRBOL
+// ════════════════════════════════════════════════════════
+function applyZoom(z) {
+  treeZoom = Math.max(0.2, Math.min(2.5, z));
+  const wrap = document.getElementById("treeWrapper");
+  const natW = wrap.scrollWidth, natH = wrap.scrollHeight;   // tamaño sin escalar
+  wrap.style.transform = `scale(${treeZoom})`;
+  // Reservar en el contenedor el espacio del árbol ya escalado (para scrollear bien)
+  wrap.style.marginRight  = (natW * (treeZoom - 1)) + "px";
+  wrap.style.marginBottom = (natH * (treeZoom - 1)) + "px";
+  const lvl = document.getElementById("zoomLevel");
+  if (lvl) lvl.textContent = Math.round(treeZoom * 100) + "%";
+}
+function zoomFit() {
+  const wrap = document.getElementById("treeWrapper");
+  const cont = document.getElementById("treeContainer");
+  if (!wrap.scrollWidth) return;
+  const avail = cont.clientWidth - 40;
+  applyZoom(Math.min(1, avail / wrap.scrollWidth));
+  cont.scrollLeft = 0; cont.scrollTop = 0;
+}
+document.getElementById("btnZoomIn").addEventListener("click", () => applyZoom(treeZoom + 0.15));
+document.getElementById("btnZoomOut").addEventListener("click", () => applyZoom(treeZoom - 0.15));
+document.getElementById("btnZoomFit").addEventListener("click", zoomFit);
+
+// ════════════════════════════════════════════════════════
+//  BUSCAR FAMILIAR
+// ════════════════════════════════════════════════════════
+function normaliza(s) {
+  return (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+}
+function buscarPersona(q) {
+  document.querySelectorAll(".person-card.search-hit").forEach(c => c.classList.remove("search-hit"));
+  const info = document.getElementById("searchInfo");
+  const query = normaliza(q.trim());
+  if (!query) { info.textContent = ""; return; }
+
+  const hits = Object.keys(people).filter(id => normaliza(people[id].name).includes(query));
+  if (hits.length === 0) { info.textContent = "Sin resultados"; return; }
+  info.textContent = hits.length === 1 ? "1 encontrado" : hits.length + " encontrados";
+
+  // Resaltar todos y centrar el primero
+  hits.forEach(id => {
+    const el = document.querySelector(`.person-card[data-id="${id}"]`);
+    if (el) el.classList.add("search-hit");
+  });
+  const first = document.querySelector(`.person-card[data-id="${hits[0]}"]`);
+  if (first) first.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+}
+let searchTimer = null;
+document.getElementById("searchBox").addEventListener("input", e => {
+  clearTimeout(searchTimer);
+  const v = e.target.value;
+  searchTimer = setTimeout(() => buscarPersona(v), 250);
 });
 
 initFirebase();
